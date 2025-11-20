@@ -11,13 +11,13 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerateScript = async (topic: string) => {
+  const handleGenerateScript = async (topic: string, duration: string) => {
     setIsLoading(true);
     setError(null);
     setVideoScript(null);
 
     try {
-      const script = await generateVideoScript(topic);
+      const script = await generateVideoScript(topic, duration);
       setVideoScript(script);
     } catch (err) {
       console.error("Error generating script:", err);

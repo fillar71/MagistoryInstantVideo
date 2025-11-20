@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import type { Segment } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -14,30 +9,32 @@ import {
     getVideosOperation,
     generateSpeechFromText
 } from '../services/geminiService';
-import { imageUrlToBase64, playGeneratedAudio, decode } from '../utils/media';
+import { imageUrlToBase64, createWavBlobUrl } from '../utils/media';
 
 interface AIToolsModalProps {
   isOpen: boolean;
   onClose: () => void;
   segment: Segment;
-  onUpdateMedia: (newUrl: string) => void;
+  activeClipId: string; // The ID of the clip we are modifying
+  onUpdateMedia: (newUrl: string) => void; // This callback in parent will handle updating specific clip
   onUpdateAudio: (newUrl: string) => void;
 }
 
 type Tab = 'generate-image' | 'edit-image' | 'generate-video' | 'tts';
 
-const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, onUpdateMedia, onUpdateAudio }) => {
+const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio }) => {
   const [activeTab, setActiveTab] = useState<Tab>('generate-image');
+
+  // Find the active clip object
+  const activeClip = segment.media.find(c => c.id === activeClipId) || segment.media[0];
 
   if (!isOpen) return null;
 
   return (
-    // FIX: The onClick handler for `onClose` was being passed the event object. Changed to an arrow function to call `onClose` without arguments.
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={() => onClose()}>
       <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col p-6" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold text-purple-300">AI Media Tools</h2>
-           {/* FIX: The onClick handler for `onClose` was being passed the event object. Changed to an arrow function to call `onClose` without arguments. */}
            <button onClick={() => onClose()} className="text-gray-400 hover:text-white text-3xl">&times;</button>
         </div>
         
@@ -52,7 +49,7 @@ const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, o
 
         <div className="flex-grow overflow-y-auto">
           {activeTab === 'generate-image' && <GenerateImageTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
-          {activeTab === 'edit-image' && <EditImageTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
+          {activeTab === 'edit-image' && <EditImageTab mediaUrl={activeClip.url} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'generate-video' && <GenerateVideoTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'tts' && <TextToSpeechTab segment={segment} onUpdateAudio={onUpdateAudio} />}
         </div>
@@ -124,12 +121,12 @@ const GenerateImageTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 };
 
 // --- Edit Image Tab ---
-const EditImageTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string) => void; onClose: () => void; }> = ({ segment, onUpdateMedia, onClose }) => {
+const EditImageTab: React.FC<{ mediaUrl: string; onUpdateMedia: (url: string) => void; onClose: () => void; }> = ({ mediaUrl, onUpdateMedia, onClose }) => {
     const [prompt, setPrompt] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<string | null>(null);
     const [error, setError] = useState('');
-    const [originalImage, setOriginalImage] = useState(segment.mediaUrl);
+    const [originalImage, setOriginalImage] = useState(mediaUrl);
     
     const handleEdit = async () => {
         if (!prompt) return;
@@ -156,7 +153,7 @@ const EditImageTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string) =>
 
     return (
          <div>
-            <p className="text-gray-300 mb-4">Modify the current image using a text command.</p>
+            <p className="text-gray-300 mb-4">Modify the selected image using a text command.</p>
             <div className="flex gap-2 mb-4">
                 <input type="text" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="e.g., Add a retro filter, make it black and white" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
                 <button onClick={handleEdit} disabled={isLoading || !prompt} className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center gap-2">
@@ -206,25 +203,26 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
     const [error, setError] = useState('');
     const [apiKeySelected, setApiKeySelected] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState(videoGenMessages[0]);
-    const pollingRef = useRef<number>();
+    const pollingRef = useRef<number | undefined>(undefined);
 
     useEffect(() => {
         // Check for API key on mount
-        if (window.aistudio) {
-            window.aistudio.hasSelectedApiKey().then(setApiKeySelected);
+        const win = window as any;
+        if (win.aistudio) {
+            win.aistudio.hasSelectedApiKey().then(setApiKeySelected);
         }
     }, []);
 
     useEffect(() => {
         // Cleanup polling on unmount
         return () => {
-            if (pollingRef.current) clearInterval(pollingRef.current);
+            if (pollingRef.current) window.clearInterval(pollingRef.current);
         }
     }, []);
 
     const handleSelectKey = async () => {
-        // FIX: The `openSelectKey` function requires an object with a `billingLink` property as an argument to fix "Expected 1 arguments, but got 0".
-        await window.aistudio.openSelectKey({ billingLink: 'https://ai.google.dev/gemini-api/docs/billing' });
+        const win = window as any;
+        await win.aistudio.openSelectKey();
         setApiKeySelected(true); // Assume success to avoid race condition
     }
 
@@ -235,7 +233,7 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
         setResult(null);
         let messageIndex = 0;
         setLoadingMessage(videoGenMessages[messageIndex]);
-        const messageInterval = setInterval(() => {
+        const messageInterval = window.setInterval(() => {
             messageIndex = (messageIndex + 1) % videoGenMessages.length;
             setLoadingMessage(videoGenMessages[messageIndex]);
         }, 8000);
@@ -245,15 +243,15 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 
             const poll = async () => {
                 if (!isLoading) {
-                    if (pollingRef.current) clearInterval(pollingRef.current);
+                    if (pollingRef.current) window.clearInterval(pollingRef.current);
                     return;
                 }
-                // FIX: Per error "Expected 0 arguments, but got 1", calling with no arguments.
-                operation = await getVideosOperation();
+                
+                operation = await getVideosOperation({ operation: operation });
                 if (operation.done) {
                     setIsLoading(false);
-                    if (pollingRef.current) clearInterval(pollingRef.current);
-                    clearInterval(messageInterval);
+                    if (pollingRef.current) window.clearInterval(pollingRef.current);
+                    window.clearInterval(messageInterval);
                     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
                     if (downloadLink) {
                         // Append API key for access
@@ -269,12 +267,12 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 
         } catch (err: any) {
             setIsLoading(false);
-            clearInterval(messageInterval);
-            if (err.message.includes("Requested entity was not found")) {
+            window.clearInterval(messageInterval);
+            if (err.message && err.message.includes("Requested entity was not found")) {
                 setError('API Key is invalid. Please select a valid key.');
                 setApiKeySelected(false);
             } else {
-                 setError('Failed to start video generation. Please try again.');
+                 setError(err.message || 'Failed to start video generation. Please try again.');
             }
             console.error(err);
         }
@@ -286,6 +284,11 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
                 <h3 className="text-xl font-semibold mb-2">API Key Required for Video Generation</h3>
                 <p className="text-gray-300 mb-4 max-w-md">The Veo video generation model requires you to select an API key associated with a project that has billing enabled.</p>
                 <button onClick={handleSelectKey} className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700">Select API Key</button>
+                <p className="mt-4 text-sm text-gray-400">
+                    <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="underline hover:text-gray-300">
+                        Learn more about billing
+                    </a>
+                </p>
              </div>
         )
     }
@@ -321,7 +324,7 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 // --- Text to Speech Tab ---
 const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string) => void; }> = ({ segment, onUpdateAudio }) => {
     const [isLoading, setIsLoading] = useState(false);
-    const [audioSrc, setAudioSrc] = useState<string | null>(null);
+    const [audioSrc, setAudioSrc] = useState<string | null>(segment.audioUrl || null);
     const [error, setError] = useState('');
 
     const handleGenerate = async () => {
@@ -331,14 +334,9 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string)
         setAudioSrc(null);
         try {
             const base64Audio = await generateSpeechFromText(segment.narration_text);
-            await playGeneratedAudio(base64Audio); // Autoplay for preview
-            // In a real app, you might upload this to a server and get a URL.
-            // For this demo, we can use a blob URL.
-            const audioBytes = decode(base64Audio);
-            const audioBlob = new Blob([audioBytes], { type: 'audio/pcm' });
-            const blobUrl = URL.createObjectURL(audioBlob);
-            setAudioSrc(blobUrl);
-            onUpdateAudio(blobUrl);
+            const wavBlobUrl = createWavBlobUrl(base64Audio);
+            setAudioSrc(wavBlobUrl);
+            onUpdateAudio(wavBlobUrl);
 
         } catch (err) {
             setError('Failed to generate speech. Please try again.');
@@ -355,10 +353,15 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string)
                 <p className="italic text-gray-300">"{segment.narration_text}"</p>
             </div>
             <button onClick={handleGenerate} disabled={isLoading || !segment.narration_text} className="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center justify-center gap-2">
-                {isLoading && <LoadingSpinner />} Generate & Play Audio
+                {isLoading && <LoadingSpinner />} Generate Audio
             </button>
             {error && <p className="text-red-400 text-center mt-2">{error}</p>}
-            {audioSrc && <p className="text-green-400 text-center mt-2">Audio generated successfully!</p>}
+            {audioSrc && !isLoading && (
+                <div className="mt-4">
+                    <p className="text-green-400 text-center mb-2">Audio generated successfully!</p>
+                    <audio src={audioSrc} controls className="w-full"></audio>
+                </div>
+            )}
         </div>
     );
 };

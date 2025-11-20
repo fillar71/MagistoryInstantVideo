@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import type { Segment } from '../types';
+
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import type { Segment, TextOverlayStyle } from '../types';
+import { generateSubtitleChunks, estimateWordTimings } from '../utils/media';
 
 interface DisplaySegment extends Segment {
   animationState: 'enter' | 'exit' | 'stable';
@@ -12,12 +14,13 @@ interface VideoPreviewModalProps {
   segments: Segment[];
 }
 
-const SEGMENT_DURATION_MS = 3000;
 const TRANSITION_DURATION_MS = 700;
 
 const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, title, segments }) => {
   const [displaySegments, setDisplaySegments] = useState<DisplaySegment[]>([]);
   const [progress, setProgress] = useState(0);
+  const [currentTimeInSegment, setCurrentTimeInSegment] = useState(0);
+  
   const timerRef = useRef<number | null>(null);
   const progressRef = useRef<number | null>(null);
   const currentIndexRef = useRef(0);
@@ -33,6 +36,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
     if (audioRef.current) {
         if (segment?.audioUrl) {
             audioRef.current.src = segment.audioUrl;
+            audioRef.current.volume = segment.audioVolume ?? 1.0;
             audioRef.current.play().catch(e => console.error("Audio play failed:", e));
         } else {
             audioRef.current.pause();
@@ -42,9 +46,24 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
   };
 
   const scheduleNextSegment = () => {
+    const currentSegment = segments[currentIndexRef.current];
+    if (!currentSegment) return;
+
+    const durationMs = currentSegment.duration * 1000;
+    let startTime = Date.now();
+
+    // Track internal time within the segment for karaoke and clip switching
+    const intervalId = window.setInterval(() => {
+        const delta = (Date.now() - startTime) / 1000;
+        setCurrentTimeInSegment(delta);
+    }, 50);
+
     timerRef.current = window.setTimeout(() => {
+        window.clearInterval(intervalId); // Stop tracking time for this segment
+        setCurrentTimeInSegment(0);
+
         if (currentIndexRef.current >= segments.length - 1) {
-            // End of video, stop last audio
+            // End of video
             if (audioRef.current) audioRef.current.pause();
             return;
         }
@@ -62,7 +81,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
         currentIndexRef.current += 1;
         playAudioForSegment(incomingSegment); // Play next audio
 
-        // After transition, clean up the exited segment
+        // After transition, clean up
         setTimeout(() => {
             setDisplaySegments(prev => 
                 prev.filter(s => s.id === incomingSegment.id)
@@ -72,7 +91,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
 
         scheduleNextSegment();
 
-    }, SEGMENT_DURATION_MS);
+    }, durationMs);
   }
 
   useEffect(() => {
@@ -81,15 +100,17 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
       const firstSegment = segments[0];
       setDisplaySegments([{ ...firstSegment, animationState: 'stable' }]);
       setProgress(0);
+      setCurrentTimeInSegment(0);
       playAudioForSegment(firstSegment);
       
       scheduleNextSegment();
 
-      const totalDuration = segments.length * SEGMENT_DURATION_MS;
+      const totalDurationMs = segments.reduce((acc, seg) => acc + (seg.duration * 1000), 0);
       const startTime = Date.now();
+      
       progressRef.current = window.setInterval(() => {
           const elapsedTime = Date.now() - startTime;
-          const newProgress = Math.min(100, (elapsedTime / totalDuration) * 100);
+          const newProgress = Math.min(100, (elapsedTime / totalDurationMs) * 100);
           setProgress(newProgress);
           if (newProgress >= 100) {
               if (progressRef.current) clearInterval(progressRef.current);
@@ -112,13 +133,112 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
 
   const activeSegment = displaySegments.find(s => s.animationState !== 'exit') || displaySegments[0] || null;
 
+  const getTextPositionClass = (style: TextOverlayStyle | undefined) => {
+    if (!style) return 'justify-end'; 
+    switch (style.position) {
+        case 'top': return 'justify-start';
+        case 'center': return 'justify-center';
+        case 'bottom': return 'justify-end';
+        default: return 'justify-end';
+    }
+  };
+
+  const renderKaraokeText = (segment: Segment) => {
+        const style = segment.textOverlayStyle;
+        if (!style || !segment.narration_text) return null;
+        
+        // Only render if timings exist (explicitly generated via "Auto Subtitle")
+        const timings = segment.wordTimings;
+        if (!timings || timings.length === 0) {
+            return null;
+        }
+
+        const subtitleChunks = generateSubtitleChunks(
+            timings, 
+            style.fontSize, 
+            style.maxCaptionLines || 2,
+            1280 // Use larger width for full screen preview
+        );
+
+        const activeChunk = subtitleChunks.find(c => currentTimeInSegment >= c.start && currentTimeInSegment <= c.end);
+        const displayChunk = activeChunk || (currentTimeInSegment < 0.1 ? subtitleChunks[0] : null);
+
+        if (!displayChunk) return null;
+        
+        const animation = style.animation || 'none';
+
+        return (
+            <p 
+                style={{
+                    fontFamily: style.fontFamily,
+                    fontSize: `${style.fontSize}px`,
+                    backgroundColor: style.backgroundColor,
+                    textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
+                    textAlign: 'center',
+                    lineHeight: 1.4
+                }}
+                className="p-2 rounded-md"
+            >
+                {displayChunk.timings.map((t, i) => {
+                    const isActive = currentTimeInSegment >= t.start && currentTimeInSegment < t.end;
+                    const isPast = currentTimeInSegment >= t.end;
+                    
+                    let inlineStyle: React.CSSProperties = {
+                        display: 'inline-block',
+                        transition: 'all 0.1s ease-out',
+                        color: isActive || isPast ? style.color : '#FFFFFF',
+                        opacity: isActive || isPast ? 1 : 0.7,
+                        marginRight: '0.25em'
+                    };
+                    
+                     if (isActive) {
+                        if (animation === 'scale') {
+                            inlineStyle.transform = 'scale(1.2)';
+                        } else if (animation === 'slide-up') {
+                            inlineStyle.transform = 'translateY(-10%)';
+                        } else if (animation === 'highlight') {
+                             inlineStyle.backgroundColor = style.color;
+                             inlineStyle.color = '#000000';
+                             inlineStyle.borderRadius = '4px';
+                             inlineStyle.opacity = 1;
+                        }
+                    }
+
+                    return (
+                        <span key={i} style={inlineStyle}>{t.word}</span>
+                    );
+                })}
+            </p>
+        )
+    }
+
+
   const renderMedia = (segment: DisplaySegment) => {
     const classNames = `transition-image ${getAnimationClass(segment)}`;
-     if (segment.mediaType === 'video') {
+    
+    // Determine which clip to show based on time
+    let currentClip = segment.media[0];
+    if (segment.media.length > 1) {
+        const clipDuration = segment.duration / segment.media.length;
+        // If it's an incoming/outgoing segment, we usually just show the start (0) or end
+        // For simplicity in transitions, we might just show the first clip for the transition duration
+        // but if it's 'stable', we use the actual time.
+        if (segment.animationState === 'stable') {
+            const index = Math.min(segment.media.length - 1, Math.floor(currentTimeInSegment / clipDuration));
+            currentClip = segment.media[index];
+        } else if (segment.animationState === 'enter') {
+            currentClip = segment.media[0];
+        } else if (segment.animationState === 'exit') {
+            // If exiting, show the last clip
+             currentClip = segment.media[segment.media.length - 1];
+        }
+    }
+
+     if (currentClip.type === 'video') {
         return (
             <video
-                key={segment.id}
-                src={segment.mediaUrl}
+                key={`${segment.id}-${currentClip.id}`} // Key change forces re-render for new clip
+                src={currentClip.url}
                 className={classNames}
                 autoPlay
                 muted
@@ -129,8 +249,8 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
      }
      return (
         <img 
-            key={segment.id}
-            src={segment.mediaUrl} 
+            key={`${segment.id}-${currentClip.id}`}
+            src={currentClip.url} 
             alt={segment.search_keywords_for_media} 
             className={classNames}
         />
@@ -158,7 +278,13 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
 
         <div className="w-full h-full bg-black rounded-md overflow-hidden relative flex items-center justify-center">
             {displaySegments.map(segment => renderMedia(segment))}
-            {/* Narration text overlay removed for a cleaner preview per user request */}
+            
+            {/* Text Overlay */}
+            {activeSegment?.textOverlayStyle && activeSegment?.narration_text && (
+                <div className={`absolute inset-0 p-4 flex flex-col pointer-events-none z-10 ${getTextPositionClass(activeSegment.textOverlayStyle)}`}>
+                    {renderKaraokeText(activeSegment)}
+                </div>
+            )}
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 z-20">

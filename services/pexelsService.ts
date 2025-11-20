@@ -1,3 +1,4 @@
+
 // This is a placeholder for your actual Pexels API key.
 // In a real application, this should be stored securely and not hardcoded.
 // For this environment, it's expected to be in process.env.
@@ -52,10 +53,10 @@ async function pexelsFetch(endpoint: string) {
 
 export async function searchPexelsPhotos(query: string, orientation: PexelsOrientation = 'landscape'): Promise<PexelsPhoto[]> {
     const data = await pexelsFetch(`/v1/search?query=${encodeURIComponent(query)}&per_page=20&orientation=${orientation}`);
-    return data.photos;
+    return data.photos || [];
 }
 
 export async function searchPexelsVideos(query: string, orientation: PexelsOrientation = 'landscape'): Promise<PexelsVideo[]> {
     const data = await pexelsFetch(`/videos/search?query=${encodeURIComponent(query)}&per_page=20&orientation=${orientation}`);
-    return data.videos;
+    return data.videos || [];
 }

@@ -1,24 +1,33 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import type { VideoScript, Segment } from '../types';
-import { searchPexelsPhotos } from "./pexelsService";
+import type { VideoScript, Segment, TransitionEffect } from '../types';
+import { searchPexelsPhotos, searchPexelsVideos } from "./pexelsService";
 
 if (!process.env.API_KEY) {
-    // This is a placeholder check. In a real environment, the API key is expected to be set.
-    // In this specific runtime, it's injected automatically.
     console.warn("API_KEY environment variable not found. Using a placeholder.");
 }
 
-// Create a new instance for each call to ensure the latest API key is used, especially for VEO.
-// FIX: Removed fallback API key to strictly adhere to guidelines. The API key must be obtained exclusively from `process.env.API_KEY`.
 const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-
-export async function generateVideoScript(topic: string): Promise<VideoScript> {
+export async function generateVideoScript(topic: string, requestedDuration: string): Promise<VideoScript> {
   const ai = getAI();
   try {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Create a short video script about "${topic}". Provide a catchy title and 5 segments. For each segment, provide a narration text and relevant search keywords for stock media.`,
+        contents: `Create a video script about "${topic}". The total duration of the video MUST be approximately "${requestedDuration}".
+        
+        CRITICAL INSTRUCTION FOR SEGMENTATION:
+        1. **1 Visual Keyword = 1 Segment**: You MUST create a separate segment for EVERY distinct visual subject.
+           - INVALID: One segment for "cats and dogs".
+           - VALID: Segment 1 for "cat", Segment 2 for "dog".
+        2. **Split Narration Exactly**: Break the narration text so it aligns perfectly with the visual.
+           - Example: If the sentence is "From the busy streets of Tokyo to the quiet temples of Kyoto."
+           - Segment 1: Narration "From the busy streets of Tokyo", Keyword "Tokyo street"
+           - Segment 2: Narration "to the quiet temples of Kyoto", Keyword "Kyoto temple"
+        3. **Single Specific Keyword**: The 'search_keywords_for_media' must be a SINGLE, concrete noun (e.g. "volcano", "eagle", "laptop"). Avoid adjectives like "beautiful" or abstract terms like "happiness".
+        4. **No Generic Segments**: Every segment must have a specific visual focus.
+        
+        The goal is a fast-paced, visually accurate video where the image changes exactly when the subject in the narration changes.`,
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -30,20 +39,24 @@ export async function generateVideoScript(topic: string): Promise<VideoScript> {
                     },
                     segments: {
                         type: Type.ARRAY,
-                        description: "An array of video segments, ideally 5 segments.",
+                        description: "An array of video segments. Strictly one segment per visual concept.",
                         items: {
                             type: Type.OBJECT,
                             properties: {
                                 narration_text: { 
                                     type: Type.STRING,
-                                    description: "The narration text or on-screen text for this segment."
+                                    description: "The narration text specific to this visual segment."
                                 },
                                 search_keywords_for_media: { 
                                     type: Type.STRING,
-                                    description: "A short, comma-separated list of keywords to find stock photos or videos for this segment."
+                                    description: "A SINGLE, specific noun for stock media search."
+                                },
+                                duration: {
+                                    type: Type.INTEGER,
+                                    description: "Duration of this segment in seconds (keep it short, 2-5s)."
                                 }
                             },
-                            required: ["narration_text", "search_keywords_for_media"]
+                            required: ["narration_text", "search_keywords_for_media", "duration"]
                         }
                     }
                 },
@@ -52,35 +65,68 @@ export async function generateVideoScript(topic: string): Promise<VideoScript> {
         }
     });
 
-    // FIX: The `response.text` is a property, not a function.
-    const parsedResponse: { title: string; segments: Omit<Segment, 'id' | 'mediaUrl' | 'mediaType'>[] } = JSON.parse(response.text);
+    const parsedResponse: { title: string; segments: Omit<Segment, 'id' | 'media' | 'mediaType' | 'mediaUrl'>[] } = JSON.parse(response.text);
 
     // Fetch initial media for all segments from Pexels
     const segmentsWithMediaPromises = parsedResponse.segments.map(async (segment, index) => {
-        let mediaUrl = `https://picsum.photos/seed/${encodeURIComponent(segment.search_keywords_for_media.split(',')[0].trim())}/1280/720`;
+        // Clean keyword to ensure it's a single term even if AI slipped up
+        const keyword = segment.search_keywords_for_media.split(',')[0].trim();
+        let mediaUrl = `https://picsum.photos/seed/${encodeURIComponent(keyword)}/1280/720`;
         let mediaType: 'image' | 'video' = 'image';
         
         try {
-            const photoResults = await searchPexelsPhotos(segment.search_keywords_for_media.split(',')[0].trim());
-            if (photoResults.length > 0) {
-                mediaUrl = photoResults[0].src.large2x;
+            // Try fetching video first to prioritize dynamic content
+            const videoResults = await searchPexelsVideos(keyword);
+            if (videoResults && videoResults.length > 0) {
+                const video = videoResults[0];
+                // Try to find HD quality, fallback to first available
+                const bestVideoFile = video.video_files.find((f: any) => f.quality === 'hd') || video.video_files[0];
+                if (bestVideoFile) {
+                    mediaUrl = bestVideoFile.link;
+                    mediaType = 'video';
+                }
+            }
+
+            // If no video found, fallback to photo
+            if (mediaType !== 'video') {
+                const photoResults = await searchPexelsPhotos(keyword);
+                if (photoResults && photoResults.length > 0) {
+                    mediaUrl = photoResults[0].src.large2x;
+                    mediaType = 'image';
+                }
             }
         } catch (e) {
             console.warn("Failed to fetch initial media from Pexels, using placeholder.", e)
         }
         
+        const transitions: TransitionEffect[] = ['fade', 'slide', 'zoom'];
+        const randomTransition = transitions[Math.floor(Math.random() * transitions.length)];
+
         return {
             ...segment,
             id: `segment-${Date.now()}-${index}`,
-            mediaUrl,
-            mediaType,
-            transition: 'fade' as const
+            media: [{
+                id: `clip-${Date.now()}-${index}-0`,
+                url: mediaUrl,
+                type: mediaType
+            }],
+            audioVolume: 1.0, // Default volume
+            transition: randomTransition,
+            textOverlayStyle: {
+                fontFamily: 'Arial, sans-serif',
+                fontSize: 40,
+                color: '#EAB308', // Default gold-ish for highlight
+                position: 'bottom' as const,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                animation: 'scale' as const,
+                maxCaptionLines: 2,
+            },
+            duration: segment.duration || 3 // Fallback duration if missing
         };
     });
 
     const segmentsWithMedia = await Promise.all(segmentsWithMediaPromises);
 
-    // Add unique IDs and generate media URLs for each segment
     const processedScript: VideoScript = {
         ...parsedResponse,
         segments: segmentsWithMedia,
@@ -98,15 +144,12 @@ export async function suggestMediaKeywords(narrationText: string): Promise<strin
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: `Based on the following narration text for a video segment, suggest 5 to 7 diverse and visually descriptive keywords for finding stock photos or videos. Provide only a comma-separated list of the keywords. Do not add any other text or explanation.\n\nNarration: "${narrationText}"`,
+      contents: `Based on the following narration text for a video segment, suggest 5 to 7 common, simple, and visually concrete keywords for finding stock photos or videos. Focus on nouns and simple descriptors (e.g. "cat", "beach sunset", "office meeting"). Avoid abstract concepts or complex phrases. Provide only a comma-separated list of the keywords. Do not add any other text or explanation.\n\nNarration: "${narrationText}"`,
       config: {
         temperature: 0.7,
       }
     });
-
-    // FIX: The `response.text` is a property, not a function.
     return response.text.trim().replace(/"/g, '');
-
   } catch (error) {
     console.error('Error calling Gemini API for keyword suggestion:', error);
     throw new Error('Failed to suggest media keywords from Gemini API.');
@@ -190,34 +233,44 @@ export async function generateVideoFromPrompt(prompt: string, aspectRatio: '16:9
     }
 }
 
-// FIX: Update getVideosOperation to accept a request object for clarity.
-export async function getVideosOperation(request: { operation: any }) {
+export async function getVideosOperation(operation: { operation: any }) {
     const ai = getAI();
-    return await ai.operations.getVideosOperation(request);
+    return await ai.operations.getVideosOperation(operation);
 }
 
 export async function generateSpeechFromText(text: string): Promise<string> {
     const ai = getAI();
-    try {
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: `Say this narration clearly: ${text}` }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Kore' },
+    let lastError: any;
+    
+    // Retry logic for resilience (e.g., against 500/RPC errors)
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash-preview-tts",
+                // Simply passing the text is often more robust for the TTS model than wrapping it in an instruction
+                contents: [{ parts: [{ text: text }] }],
+                config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: 'Kore' },
+                        },
                     },
                 },
-            },
-        });
-        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (!base64Audio) {
-            throw new Error("No audio data returned from API.");
+            });
+            const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+            if (!base64Audio) {
+                throw new Error("No audio data returned from API.");
+            }
+            return base64Audio;
+        } catch (error) {
+            console.warn(`TTS Attempt ${attempt + 1} failed:`, error);
+            lastError = error;
+            // Exponential backoff: wait 1s, 2s, etc.
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
         }
-        return base64Audio;
-    } catch (error) {
-        console.error('Error generating speech:', error);
-        throw new Error('Failed to generate speech from text.');
     }
+    
+    console.error('Final error generating speech:', lastError);
+    throw new Error('Failed to generate speech from text. Please try again later.');
 }
