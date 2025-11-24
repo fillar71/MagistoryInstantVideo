@@ -73,6 +73,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     const statusRef = useRef<ExportStatus>('idle');
     const ffmpegRef = useRef<FFmpeg>(new FFmpeg());
     const isCancelledRef = useRef(false);
+    const loadingIntervalRef = useRef<number | null>(null);
 
     // Sync status state to ref for event listeners
     useEffect(() => {
@@ -88,8 +89,34 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             isCancelledRef.current = false;
         } else {
              isCancelledRef.current = true;
+             if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
         }
     }, [isOpen]);
+
+    const startLoadingAnimation = () => {
+        const messages = [
+            "Initializing video engine...",
+            "Compiling WebAssembly (this can take a minute)...",
+            "Still working on it, please wait...",
+            "Optimizing for your device...",
+            "Almost ready to render..."
+        ];
+        let i = 0;
+        setStatusText(messages[0]);
+        if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
+        
+        loadingIntervalRef.current = window.setInterval(() => {
+            i = (i + 1) % messages.length;
+            setStatusText(messages[i]);
+        }, 3000);
+    };
+
+    const stopLoadingAnimation = () => {
+        if (loadingIntervalRef.current) {
+            clearInterval(loadingIntervalRef.current);
+            loadingIntervalRef.current = null;
+        }
+    };
 
     const loadFFmpeg = async () => {
         const ffmpeg = ffmpegRef.current;
@@ -111,6 +138,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                     console.log('FFmpeg Log:', message);
                 });
 
+                // Use the Single-Threaded version for maximum compatibility (Termux/Android)
+                // Version 0.12.10 'core' is typically single threaded or compatible.
                 const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
                 
                 // 1. Download JS (Approx 0-5% of total progress)
@@ -121,7 +150,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 );
 
                 // 2. Download WASM (Approx 5-25% of total progress)
-                // This is the large file (~25MB)
                 const wasmURL = await fetchWithProgress(
                     `${baseURL}/ffmpeg-core.wasm`, 
                     'application/wasm', 
@@ -129,30 +157,42 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 );
 
                 // 3. Initialize (25%)
-                setStatusText('Initializing video engine... (This happens once)');
                 setProgress(25);
+                startLoadingAnimation();
                 
                 // Crucial: Yield to main thread so UI updates before heavy WASM compilation
                 await new Promise(r => setTimeout(r, 100));
 
-                await ffmpeg.load({
+                // Wrap load in a timeout race to detect "stuck" state
+                const loadPromise = ffmpeg.load({
                     coreURL: coreURL,
                     wasmURL: wasmURL,
                 });
+                
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error("Engine initialization timed out (60s).")), 60000);
+                });
+
+                await Promise.race([loadPromise, timeoutPromise]);
+                
+                stopLoadingAnimation();
                 
                 // Loaded successfully
                 setProgress(28);
                 setStatusText('Engine ready.');
                 
             } catch (e: any) {
+                stopLoadingAnimation();
                 console.error("FFmpeg load error:", e);
                 const msg = e.message || "Unknown error";
                 let friendlyMsg = `Failed to download or load the video engine. Error: ${msg}`;
                 
                 if (msg.includes("SharedArrayBuffer")) {
-                    friendlyMsg = "Your browser does not support SharedArrayBuffer. Please use a modern version of Chrome, Edge, or Firefox.";
+                    friendlyMsg = "Browser feature missing (SharedArrayBuffer). Try using Chrome/Firefox on Desktop.";
+                } else if (msg.includes("timed out")) {
+                    friendlyMsg = "Initialization timed out. Your device might be too slow or the browser is throttling the process. Try closing other tabs.";
                 } else if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
-                    friendlyMsg = "Network error: Failed to download the video engine (~25MB). Please check your internet connection.";
+                    friendlyMsg = "Network error: Failed to download the video engine (~25MB). Check connection.";
                 }
                 
                 setError(friendlyMsg);
@@ -164,6 +204,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
     const handleClose = () => {
         isCancelledRef.current = true;
+        stopLoadingAnimation();
         onClose();
     }
     
@@ -527,6 +568,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             console.error("Export failed:", err);
             setError(err.message || "An unexpected error occurred during rendering.");
             setStatus('error');
+        } finally {
+            stopLoadingAnimation();
         }
     };
 
@@ -561,7 +604,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                     <div className="text-center py-4">
                         <div className="flex justify-center mb-6"><LoadingSpinner /></div>
                         <h3 className="text-lg font-semibold text-white mb-2">Processing Video</h3>
-                        <p className="text-sm text-gray-400 mb-4">{statusText}</p>
+                        <p className="text-sm text-gray-400 mb-4 min-h-[20px] transition-all duration-300">{statusText}</p>
                         
                         <div className="w-full bg-gray-700 rounded-full h-3 mb-2 overflow-hidden">
                             <div 
@@ -572,7 +615,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         <p className="text-xs text-gray-500">{Math.round(progress)}% Complete</p>
                         {status === 'loading_engine' && (
                             <p className="text-[10px] text-gray-600 mt-2">
-                                Downloading export engine components. This happens once and is cached for next time.
+                                Downloading export engine components. This happens once.
                             </p>
                         )}
                     </div>
