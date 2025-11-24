@@ -18,14 +18,11 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
         
         CRITICAL INSTRUCTION FOR SEGMENTATION:
         1. **1 Visual Keyword = 1 Segment**: You MUST create a separate segment for EVERY distinct visual subject.
-           - INVALID: One segment for "cats and dogs".
-           - VALID: Segment 1 for "cat", Segment 2 for "dog".
         2. **Split Narration Exactly**: Break the narration text so it aligns perfectly with the visual.
-           - Example: If the sentence is "From the busy streets of Tokyo to the quiet temples of Kyoto."
-           - Segment 1: Narration "From the busy streets of Tokyo", Keyword "Tokyo street"
-           - Segment 2: Narration "to the quiet temples of Kyoto", Keyword "Kyoto temple"
-        3. **Single Specific Keyword**: The 'search_keywords_for_media' must be a SINGLE, concrete noun (e.g. "volcano", "eagle", "laptop"). Avoid adjectives like "beautiful" or abstract terms like "happiness".
-        4. **No Generic Segments**: Every segment must have a specific visual focus.
+        3. **Visual Search Phrase**: The 'search_keywords_for_media' must be strictly **2 words** (Subject + Context).
+           - INVALID: "happiness" (too short), "business team meeting office" (too long), "a cat" (filler words).
+           - VALID: "business meeting", "running dog", "storm clouds", "cooking steak", "office working".
+        4. **No Generic Segments**: Every segment must have a specific visual focus matching the narration.
         
         The goal is a fast-paced, visually accurate video where the image changes exactly when the subject in the narration changes.`,
         config: {
@@ -49,7 +46,7 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
                                 },
                                 search_keywords_for_media: { 
                                     type: Type.STRING,
-                                    description: "A SINGLE, specific noun for stock media search."
+                                    description: "A strictly 2-word search phrase (Subject + Context) for finding stock footage."
                                 },
                                 duration: {
                                     type: Type.INTEGER,
@@ -69,9 +66,11 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
 
     // Fetch initial media for all segments from Pexels
     const segmentsWithMediaPromises = parsedResponse.segments.map(async (segment, index) => {
-        // Clean keyword to ensure it's a single term even if AI slipped up
-        const keyword = segment.search_keywords_for_media.split(',')[0].trim();
-        let mediaUrl = `https://picsum.photos/seed/${encodeURIComponent(keyword)}/1280/720`;
+        // Use the full descriptive phrase for better search results
+        const keyword = segment.search_keywords_for_media.trim();
+        
+        // Fallback placeholder
+        let mediaUrl = `https://picsum.photos/seed/${encodeURIComponent(keyword.split(' ')[0])}/1280/720`;
         let mediaType: 'image' | 'video' = 'image';
         
         try {
@@ -139,12 +138,24 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
   }
 }
 
-export async function suggestMediaKeywords(narrationText: string): Promise<string> {
+export async function suggestMediaKeywords(narrationText: string, videoContext?: string): Promise<string> {
   const ai = getAI();
+  const contextPrompt = videoContext ? `The overall video topic is: "${videoContext}".` : "";
+  
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: `Based on the following narration text for a video segment, suggest 5 to 7 common, simple, and visually concrete keywords for finding stock photos or videos. Focus on nouns and simple descriptors (e.g. "cat", "beach sunset", "office meeting"). Avoid abstract concepts or complex phrases. Provide only a comma-separated list of the keywords. Do not add any other text or explanation.\n\nNarration: "${narrationText}"`,
+      contents: `Based on the following narration text for a video segment, suggest 5 to 7 visually descriptive search phrases for stock footage (Pexels). 
+      ${contextPrompt}
+      
+      Rules:
+      1. Each phrase should be strictly **2 words** (Subject + Context).
+      2. Ensure the visual style aligns with the overall video topic.
+      3. Focus on visible elements.
+      4. Avoid abstract words like "concept" or "success".
+      5. Provide ONLY a comma-separated list.
+      
+      Narration: "${narrationText}"`,
       config: {
         temperature: 0.7,
       }

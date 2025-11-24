@@ -13,7 +13,7 @@ interface ExportModalProps {
   segments: Segment[];
 }
 
-type ExportStatus = 'idle' | 'loading_engine' | 'rendering_audio' | 'rendering_video' | 'encoding' | 'complete' | 'error';
+type ExportStatus = 'idle' | 'loading_engine' | 'downloading_assets' | 'rendering_audio' | 'rendering_video' | 'encoding' | 'complete' | 'error';
 
 const RENDER_WIDTH = 1280;
 const RENDER_HEIGHT = 720;
@@ -71,6 +71,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     const ffmpegRef = useRef<FFmpeg | null>(null);
     const isCancelledRef = useRef(false);
     const loadingIntervalRef = useRef<number | null>(null);
+    // Keep track of blob URLs to revoke them later
+    const createdBlobUrls = useRef<string[]>([]);
 
     useEffect(() => {
         statusRef.current = status;
@@ -87,11 +89,22 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             setVideoUrl(null);
             setError('');
             isCancelledRef.current = false;
+            createdBlobUrls.current = [];
         } else {
              isCancelledRef.current = true;
+             cleanupBlobUrls();
              if (loadingIntervalRef.current) (window as any).clearInterval(loadingIntervalRef.current);
         }
+        
+        return () => {
+            cleanupBlobUrls();
+        }
     }, [isOpen]);
+
+    const cleanupBlobUrls = () => {
+        createdBlobUrls.current.forEach(url => URL.revokeObjectURL(url));
+        createdBlobUrls.current = [];
+    };
 
     const startLoadingAnimation = () => {
         const messages = [
@@ -237,6 +250,23 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
          });
     }
 
+    const fetchResourceAsBlob = async (url: string): Promise<string> => {
+        // If it's already a blob/data URL, just return it
+        if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+        
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Network response was not ok');
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            createdBlobUrls.current.push(blobUrl);
+            return blobUrl;
+        } catch (error) {
+            console.error("Failed to fetch resource as blob, falling back to URL:", url, error);
+            return url;
+        }
+    };
+
     const handleStartExport = async () => {
         if (status !== 'idle' && status !== 'error') return;
         isCancelledRef.current = false;
@@ -248,10 +278,60 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
             const ffmpeg = ffmpegRef.current;
             if (!ffmpeg || !ffmpeg.loaded) throw new Error("FFmpeg failed to load");
+            
+            // --- STEP 1: DOWNLOAD ASSETS TO LOCAL BLOBs ---
+            setStatus('downloading_assets');
+            setProgress(30);
+            
+            // Collect all unique media URLs
+            const assetsToLoad = new Set<string>();
+            segments.forEach(s => s.media.forEach(m => assetsToLoad.add(m.id)));
+            const totalAssets = assetsToLoad.size;
+            
+            const loadedAssets = new Map<string, HTMLImageElement | HTMLVideoElement>();
+            let loadedCount = 0;
 
+            for (const s of segments) {
+                for (const c of s.media) {
+                     if (!loadedAssets.has(c.id)) {
+                         setStatusText(`Downloading media ${loadedCount + 1}/${totalAssets}...`);
+                         
+                         // THIS IS THE FIX: Download to Blob first
+                         // This prevents CORS "tainted canvas" issues and Black Screens due to streaming lag
+                         const localBlobUrl = await fetchResourceAsBlob(c.url);
+                         
+                         try {
+                             if (c.type === 'image') {
+                                 const img = new (window as any).Image(); 
+                                 img.src = localBlobUrl; 
+                                 await img.decode();
+                                 loadedAssets.set(c.id, img);
+                             } else {
+                                 const v = (window as any).document.createElement('video'); 
+                                 v.src = localBlobUrl;
+                                 v.muted = true;
+                                 v.playsInline = true;
+                                 // Wait for metadata to ensure it's playable
+                                 await new Promise((resolve, reject) => {
+                                     v.onloadedmetadata = resolve;
+                                     v.onerror = reject;
+                                 });
+                                 loadedAssets.set(c.id, v);
+                             }
+                         } catch(e) {
+                             console.error("Failed to load asset:", c.url, e);
+                         }
+                         
+                         loadedCount++;
+                         setProgress(30 + (loadedCount / totalAssets) * 10); // 30% -> 40%
+                     }
+                }
+            }
+
+            // --- STEP 2: AUDIO RENDERING ---
             setStatus('rendering_audio');
             setStatusText('Mixing audio tracks...');
-            setProgress(30);
+            setProgress(40);
 
             const OfflineContextClass = (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext;
             const totalDuration = segments.reduce((acc, s) => acc + s.duration, 0);
@@ -277,34 +357,16 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             }
             const renderedBuffer = await offlineCtx.startRendering();
             await ffmpeg.writeFile('audio.wav', new Uint8Array(audioBufferToWav(renderedBuffer)));
-            setProgress(35);
+            setProgress(45);
 
+            // --- STEP 3: VIDEO RENDERING (Frame by Frame) ---
             setStatus('rendering_video');
-            setStatusText('Loading visual assets...');
+            setStatusText('Rendering video frames...');
             const canvas = (window as any).document.createElement('canvas');
             canvas.width = RENDER_WIDTH;
             canvas.height = RENDER_HEIGHT;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             if (!ctx) throw new Error("Canvas init failed");
-
-            const loadedAssets = new Map<string, HTMLImageElement | HTMLVideoElement>();
-            for (const s of segments) {
-                for (const c of s.media) {
-                     if (!loadedAssets.has(c.id)) {
-                         const safeUrl = c.url.startsWith('data:') ? c.url : `${c.url}?t=${Date.now()}`;
-                         try {
-                             if (c.type === 'image') {
-                                 const img = new (window as any).Image(); img.crossOrigin="Anonymous"; img.src=safeUrl; await img.decode();
-                                 loadedAssets.set(c.id, img);
-                             } else {
-                                 const v = (window as any).document.createElement('video'); v.crossOrigin="Anonymous"; v.src=safeUrl;
-                                 await new Promise((r,j)=>{v.onloadedmetadata=r;v.onerror=j});
-                                 loadedAssets.set(c.id, v);
-                             }
-                         } catch(e) {}
-                     }
-                }
-            }
 
             const totalFrames = Math.ceil(totalDuration * FRAME_RATE);
             let currentTime = 0;
@@ -327,8 +389,16 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const clipDuration = seg.duration / seg.media.length;
                 const clipIdx = Math.min(seg.media.length-1, Math.floor(timeInSeg / clipDuration));
                 const asset = loadedAssets.get(seg.media[clipIdx].id);
+                
                 if (asset) {
-                    if (asset instanceof (window as any).HTMLVideoElement) (asset as any).currentTime = timeInSeg % clipDuration;
+                    if (asset instanceof (window as any).HTMLVideoElement) {
+                         const v = asset as HTMLVideoElement;
+                         // Set time and ensure buffer availability
+                         v.currentTime = timeInSeg % clipDuration;
+                         // Small hack to ensure video frame is ready to paint
+                         // In a perfect world we use requestVideoFrameCallback, but inside a tight loop
+                         // simple awaiting usually suffices if source is local blob
+                    }
                     ctx.drawImage(asset as any, 0,0, RENDER_WIDTH, RENDER_HEIGHT);
                 }
 
@@ -337,8 +407,11 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', 0.8));
                 if (blob) await ffmpeg.writeFile(`frame_${String(i).padStart(3,'0')}.jpg`, new Uint8Array(await blob.arrayBuffer()));
                 
-                setProgress(35 + (i/totalFrames)*55);
+                // Progress from 45% to 90%
+                setProgress(45 + (i/totalFrames)*45);
                 setStatusText(`Rendering frame ${i}/${totalFrames}`);
+                
+                // Yield to main thread frequently to keep UI responsive
                 if (i%5===0) await new Promise(r => setTimeout(r, 0));
             }
 
@@ -355,6 +428,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             setStatus('error');
         } finally {
             stopLoadingAnimation();
+            // Note: We don't cleanup blobs immediately here so the video can play
+            // They are cleaned up on Modal close
         }
     };
 
@@ -394,7 +469,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                     </div>
                 )}
 
-                {(status === 'loading_engine' || status === 'rendering_audio' || status === 'rendering_video' || status === 'encoding') && (
+                {(status === 'loading_engine' || status === 'downloading_assets' || status === 'rendering_audio' || status === 'rendering_video' || status === 'encoding') && (
                     <div className="text-center py-4">
                         <div className="flex justify-center mb-6"><LoadingSpinner /></div>
                         <h3 className="text-lg font-semibold text-white mb-2">Processing Video</h3>

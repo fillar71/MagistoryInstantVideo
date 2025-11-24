@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { suggestMediaKeywords } from '../services/geminiService';
 import { searchPexelsPhotos, searchPexelsVideos } from '../services/pexelsService';
 import LoadingSpinner from './LoadingSpinner';
-import { PlayIcon, ExportIcon, MediaIcon } from './icons';
+import { PlayIcon, ExportIcon, MediaIcon, MagicWandIcon } from './icons';
 
 interface MediaSearchModalProps {
   isOpen: boolean;
@@ -12,19 +12,21 @@ interface MediaSearchModalProps {
   initialKeywords: string;
   narrationText: string;
   mode?: 'default' | 'wizard';
+  videoTitle?: string;
 }
 
-type SearchType = 'photos' | 'videos' | 'upload';
+type SearchType = 'all' | 'photos' | 'videos' | 'upload';
 type Orientation = 'landscape' | 'portrait' | 'square';
 type WizardStep = 'source' | 'pexels-type' | 'search';
 
-const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, onSelectMedia, initialKeywords, narrationText, mode = 'default' }) => {
+const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, onSelectMedia, initialKeywords, narrationText, mode = 'default', videoTitle }) => {
   const [query, setQuery] = useState(initialKeywords);
-  const [searchType, setSearchType] = useState<SearchType>('photos');
+  const [searchType, setSearchType] = useState<SearchType>('all');
   const [orientation, setOrientation] = useState<Orientation>('landscape');
   const [results, setResults] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   
   // Wizard state
@@ -38,28 +40,38 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
       if (mode === 'wizard') {
           setWizardStep('source');
           setQuery('');
+          setSuggestions([]);
       } else {
           setWizardStep('search');
           setQuery(initialKeywords);
+          // If we have narration text, let's auto-suggest context-aware keywords
+          // providing instant inspiration based on the script
+          if (narrationText && (!initialKeywords || initialKeywords === 'placeholder')) {
+              handleSuggest();
+          }
           if (!initialKeywords || initialKeywords === 'placeholder') {
               setSearchType('upload');
           } else {
-              setSearchType('photos');
+              setSearchType('all');
           }
       }
+    } else {
+        setResults([]);
+        setSuggestions([]);
     }
   }, [isOpen, initialKeywords, mode]);
 
   useEffect(() => {
-      if (isOpen && searchType !== 'upload' && wizardStep === 'search') {
+      // Auto-fetch media if we have a valid query and are in search mode
+      if (isOpen && searchType !== 'upload' && wizardStep === 'search' && query && query !== 'placeholder') {
           fetchMedia();
-      } else if (!isOpen) {
-          setResults([]); 
       }
-  }, [isOpen, query, searchType, orientation, wizardStep]); 
+  }, [isOpen, searchType, orientation, wizardStep]); // removed query from dependency to prevent double fetch on typing, handled by submit/suggestion
   
-  const fetchMedia = async () => {
-    if (!query.trim()) {
+  const fetchMedia = async (overrideQuery?: string) => {
+    const activeQuery = overrideQuery !== undefined ? overrideQuery : query;
+    
+    if (!activeQuery.trim()) {
         setResults([]);
         return;
     }
@@ -73,11 +85,26 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
     }
 
     try {
-        let data = [];
-        if (searchType === 'photos') {
-            data = await searchPexelsPhotos(query, orientation);
+        let data: any[] = [];
+        
+        if (searchType === 'all') {
+            const [photos, videos] = await Promise.all([
+                searchPexelsPhotos(activeQuery, orientation),
+                searchPexelsVideos(activeQuery, orientation)
+            ]);
+            
+            // Interleave results to show a mix
+            const maxLength = Math.max(photos.length, videos.length);
+            for (let i = 0; i < maxLength; i++) {
+                if (photos[i]) data.push({ ...photos[i], _type: 'photo' });
+                if (videos[i]) data.push({ ...videos[i], _type: 'video' });
+            }
+        } else if (searchType === 'photos') {
+            const photos = await searchPexelsPhotos(activeQuery, orientation);
+            data = photos.map(p => ({ ...p, _type: 'photo' }));
         } else if (searchType === 'videos') {
-            data = await searchPexelsVideos(query, orientation);
+            const videos = await searchPexelsVideos(activeQuery, orientation);
+            data = videos.map(v => ({ ...v, _type: 'video' }));
         }
         
         if (requestId === activeRequestRef.current) {
@@ -110,27 +137,37 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
   };
 
   const handleSuggest = async () => {
+    if (!narrationText) return;
     setIsSuggesting(true);
-    setError(null);
+    // setError(null); // Suggestion error shouldn't clear search error
     try {
-      const suggested = await suggestMediaKeywords(narrationText);
-      setQuery(suggested);
+      const suggestedString = await suggestMediaKeywords(narrationText, videoTitle);
+      const parts = suggestedString.split(',').map(s => s.trim()).filter(s => s.length > 2);
+      setSuggestions(parts);
     } catch (err) {
-      setError("Failed to get suggestions. Please try again.");
+      console.warn("Failed to get suggestions", err);
     } finally {
       setIsSuggesting(false);
     }
   };
   
-  const handleSelect = (result: any) => {
-    if (searchType === 'photos') {
-        if (result.src?.large2x) {
-            onSelectMedia(result.src.large2x, 'image');
+  const applySuggestion = (s: string) => {
+      setQuery(s);
+      fetchMedia(s);
+  };
+  
+  const handleSelect = (item: any) => {
+    // Determine type based on explicit tag or property detection
+    const isVideo = item._type === 'video' || (item.video_files && item.video_files.length > 0);
+
+    if (!isVideo) {
+        if (item.src?.large2x) {
+            onSelectMedia(item.src.large2x, 'image');
         }
     } else {
-        if (result.video_files && result.video_files.length > 0) {
-            const hdFile = result.video_files.find((f: any) => f.quality === 'hd');
-            onSelectMedia(hdFile?.link || result.video_files[0].link, 'video');
+        if (item.video_files && item.video_files.length > 0) {
+            const hdFile = item.video_files.find((f: any) => f.quality === 'hd');
+            onSelectMedia(hdFile?.link || item.video_files[0].link, 'video');
         }
     }
     onClose();
@@ -237,7 +274,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                     </button>
                 )}
                 <h2 className="text-2xl font-bold text-purple-300">
-                    {searchType === 'upload' ? 'Upload Media' : `Search ${searchType === 'photos' ? 'Photos' : 'Videos'}`}
+                    {searchType === 'upload' ? 'Upload Media' : 'Search Media'}
                 </h2>
             </div>
             {searchType !== 'upload' && (
@@ -250,34 +287,57 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
 
         <div className="mt-4">
         {searchType !== 'upload' && (
-            <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2 mb-4">
-            <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery((e.target as any).value)}
-                placeholder="Enter search keywords..."
-                className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none"
-            />
-            <button 
-                type="button"
-                onClick={handleSuggest}
-                disabled={isSuggesting || !narrationText}
-                title={!narrationText ? "Narration text is empty" : "Suggest keywords with AI"}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-                {isSuggesting ? <div className="w-5 h-5"><LoadingSpinner /></div> : '✨'}
-                Suggest
-            </button>
-            <button type="submit" className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700">
-                Search
-            </button>
-            </form>
+            <>
+                <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-2 mb-3">
+                <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery((e.target as any).value)}
+                    placeholder="Enter search keywords..."
+                    className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none text-white placeholder-gray-400"
+                />
+                <button 
+                    type="button"
+                    onClick={handleSuggest}
+                    disabled={isSuggesting || !narrationText}
+                    title={!narrationText ? "Narration text is empty" : "Refresh AI Suggestions"}
+                    className="px-4 py-2 bg-gray-700 text-gray-300 border border-gray-600 rounded-md hover:bg-gray-600 hover:text-white hover:border-purple-400 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all"
+                >
+                    {isSuggesting ? <LoadingSpinner /> : <MagicWandIcon className="w-5 h-5 text-purple-400" />}
+                </button>
+                <button type="submit" className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 shadow-md">
+                    Search
+                </button>
+                </form>
+
+                {/* AI Suggestions Display */}
+                {(suggestions.length > 0 || isSuggesting) && (
+                    <div className="flex flex-wrap gap-2 mb-4 items-center animate-fade-in bg-gray-900/50 p-2 rounded-lg border border-gray-700/50">
+                        <span className="text-[10px] text-purple-300 font-bold uppercase tracking-wider flex items-center mr-1">
+                            <MagicWandIcon className="w-3 h-3 mr-1" /> Ideas:
+                        </span>
+                        {isSuggesting && suggestions.length === 0 && (
+                            <span className="text-xs text-gray-500 animate-pulse italic">Analyzing narration...</span>
+                        )}
+                        {suggestions.map((s, i) => (
+                            <button 
+                                key={i} 
+                                onClick={() => applySuggestion(s)}
+                                className="px-3 py-1 bg-gray-800 border border-gray-600 rounded-full text-xs text-gray-300 hover:bg-purple-600 hover:text-white hover:border-purple-400 transition-all shadow-sm whitespace-nowrap"
+                            >
+                                {s}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </>
         )}
         
         {/* Only show nav tabs if NOT in wizard mode, or if user wants to switch context freely */}
         {mode !== 'wizard' && (
             <div className="flex justify-between items-center border-b border-gray-700 mb-4">
             <nav className="flex gap-4">
+                <button onClick={() => handleSearchTypeChange('all')} className={`px-4 py-2 font-semibold border-b-2 transition-colors ${searchType === 'all' ? 'text-purple-400 border-purple-400' : 'text-gray-400 border-transparent hover:text-white'}`}>All</button>
                 <button onClick={() => handleSearchTypeChange('photos')} className={`px-4 py-2 font-semibold border-b-2 transition-colors ${searchType === 'photos' ? 'text-purple-400 border-purple-400' : 'text-gray-400 border-transparent hover:text-white'}`}>Photos</button>
                 <button onClick={() => handleSearchTypeChange('videos')} className={`px-4 py-2 font-semibold border-b-2 transition-colors ${searchType === 'videos' ? 'text-purple-400 border-purple-400' : 'text-gray-400 border-transparent hover:text-white'}`}>Videos</button>
                 <button onClick={() => handleSearchTypeChange('upload')} className={`px-4 py-2 font-semibold border-b-2 transition-colors ${searchType === 'upload' ? 'text-purple-400 border-purple-400' : 'text-gray-400 border-transparent hover:text-white'}`}>Upload</button>
@@ -303,16 +363,16 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
         )}
         </div>
 
-        {error && <p className="text-red-400 text-center mb-2">{error}</p>}
+        {error && <p className="text-red-400 text-center mb-2 bg-red-900/20 p-2 rounded border border-red-900/50">{error}</p>}
 
-        <div className="flex-grow overflow-y-auto pr-2 -mr-2">
+        <div className="flex-grow overflow-y-auto pr-2 -mr-2 custom-scrollbar">
           
           {searchType === 'upload' ? (
-              <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-gray-600 rounded-lg p-8 hover:border-purple-500 transition-colors">
+              <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-gray-600 rounded-lg p-8 hover:border-purple-500 transition-colors bg-gray-800/50">
                   <div className="bg-gray-700 p-4 rounded-full mb-4">
                       <ExportIcon className="w-8 h-8 text-purple-400" />
                   </div>
-                  <h3 className="text-xl font-bold mb-2">Upload Media</h3>
+                  <h3 className="text-xl font-bold mb-2 text-white">Upload Media</h3>
                   <p className="text-gray-400 mb-6 text-center">Select an image or video file from your device</p>
                   <input 
                       type="file" 
@@ -330,47 +390,63 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
               </div>
           ) : (
             isLoading ? (
-                <div className="flex items-center justify-center h-full">
-                <LoadingSpinner />
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                    <LoadingSpinner />
+                    <p className="text-gray-400 text-sm animate-pulse">Searching Pexels library...</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {results.map(item => (
-                    <div key={item.id} className="aspect-video bg-gray-700 rounded-md overflow-hidden cursor-pointer group relative" onClick={() => handleSelect(item)}>
-                    {searchType === 'photos' ? (
-                        <img src={item.src?.medium} alt={item.alt} loading="lazy" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"/>
-                    ) : (
-                        <>
-                            {item.video_files && item.video_files.length > 0 ? (
-                                <video 
-                                    src={item.video_files[0].link} 
-                                    poster={item.image} 
-                                    muted 
-                                    loop 
-                                    playsInline 
-                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                    onMouseOver={e => (e.currentTarget as any).play().catch(() => {})}
-                                    onMouseOut={e => {
-                                        (e.currentTarget as any).pause();
-                                        (e.currentTarget as any).currentTime = 0;
-                                    }}
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-500 text-xs">No Video</div>
-                            )}
-                            <div className="absolute top-2 right-2 bg-black/50 p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                <PlayIcon className="w-4 h-4 text-white"/>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-4">
+                {results.map((item, index) => {
+                    const isVideo = item._type === 'video' || !!item.video_files;
+                    return (
+                        <div key={`${item.id}-${index}`} className="aspect-video bg-gray-800 rounded-md overflow-hidden cursor-pointer group relative shadow-md border border-gray-700 hover:border-purple-500 transition-all" onClick={() => handleSelect(item)}>
+                            {/* Type Badge */}
+                            <div className={`absolute top-2 left-2 px-2 py-0.5 rounded text-[9px] font-bold text-white z-10 shadow-sm ${isVideo ? 'bg-teal-600' : 'bg-pink-600'}`}>
+                                {isVideo ? 'VIDEO' : 'PHOTO'}
                             </div>
-                        </>
-                    )}
-                    </div>
-                ))}
+
+                            {!isVideo ? (
+                                <img src={item.src?.medium} alt={item.alt} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"/>
+                            ) : (
+                                <>
+                                    {item.video_files && item.video_files.length > 0 ? (
+                                        <video 
+                                            src={item.video_files[0].link} 
+                                            poster={item.image} 
+                                            muted 
+                                            loop 
+                                            playsInline 
+                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                            onMouseOver={e => (e.currentTarget as any).play().catch(() => {})}
+                                            onMouseOut={e => {
+                                                (e.currentTarget as any).pause();
+                                                (e.currentTarget as any).currentTime = 0;
+                                            }}
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-500 text-xs">No Video Preview</div>
+                                    )}
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                        <div className="bg-purple-600 p-2 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
+                                            <PlayIcon className="w-5 h-5 text-white"/>
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <p className="text-[10px] text-white truncate">{item.user?.name || item.photographer}</p>
+                            </div>
+                        </div>
+                    );
+                })}
                 </div>
             )
           )}
            {!isLoading && results.length === 0 && !error && searchType !== 'upload' && (
-                <div className="flex items-center justify-center h-full text-gray-500">
-                    <p>No results found for "{query}". Try a different search.</p>
+                <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                    <MediaIcon className="w-12 h-12 mb-2 opacity-20" />
+                    <p>No results found for "{query}"</p>
+                    <p className="text-sm mt-1">Try using the AI suggestions or different keywords</p>
                 </div>
             )}
         </div>

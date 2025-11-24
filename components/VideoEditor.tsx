@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
-import type { VideoScript, Segment, TransitionEffect, TextOverlayStyle, WordTiming } from '../types';
+import type { VideoScript, Segment, TransitionEffect, TextOverlayStyle, WordTiming, MediaClip } from '../types';
 import PreviewWindow from './PreviewWindow';
 import Timeline from './Timeline';
 import Toolbar from './Toolbar';
@@ -128,11 +128,43 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     );
   }, [updateSegments]);
 
+  const handleReorderClips = useCallback((segmentId: string, newMedia: MediaClip[]) => {
+      updateSegments(prevSegments => 
+        prevSegments.map(s => 
+            s.id === segmentId ? { ...s, media: newMedia } : s
+        )
+      );
+  }, [updateSegments]);
+
   const handleAddSegment = useCallback(() => {
       setMediaSearchMode('wizard');
       setMediaSearchTarget({ clipId: null });
       setIsMediaSearchOpen(true);
   }, []);
+
+  const handleDeleteSegment = useCallback(() => {
+    if (!activeSegmentId) return;
+
+    if (!window.confirm("Are you sure you want to delete this segment?")) {
+        return;
+    }
+    
+    updateSegments(prev => {
+        if (prev.length <= 1) {
+            alert("Cannot delete the only segment.");
+            return prev;
+        }
+        const index = prev.findIndex(s => s.id === activeSegmentId);
+        const newSegments = prev.filter(s => s.id !== activeSegmentId);
+        
+        // Determine new active segment
+        let nextId = null;
+        if (index > 0) nextId = newSegments[index - 1].id;
+        else if (newSegments.length > 0) nextId = newSegments[0].id;
+        
+        return newSegments;
+    });
+  }, [activeSegmentId, updateSegments]);
 
   const handleCreateNewSegment = useCallback((newMediaUrl: string, newMediaType: 'image' | 'video') => {
       const newSegmentId = `segment-${Date.now()}`;
@@ -176,11 +208,22 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       );
   }, [updateSegments]);
 
-  const handleUpdateSegmentAudio = useCallback((segmentId: string, newAudioUrl: string | undefined) => {
+  const handleUpdateSegmentAudio = useCallback((segmentId: string, newAudioUrl: string | undefined, audioDuration?: number) => {
     updateSegments(prevSegments =>
-      prevSegments.map(s =>
-        s.id === segmentId ? { ...s, audioUrl: newAudioUrl } : s
-      )
+      prevSegments.map(s => {
+        if (s.id !== segmentId) return s;
+        
+        let newDuration = s.duration;
+        // If audio exists and valid duration is provided
+        if (newAudioUrl && audioDuration && audioDuration > 0) {
+             // If audio is shorter than current segment duration, automatically shrink segment to match
+             if (audioDuration < s.duration) {
+                 newDuration = audioDuration;
+             }
+        }
+
+        return { ...s, audioUrl: newAudioUrl, duration: newDuration };
+      })
     );
   }, [updateSegments]);
 
@@ -267,6 +310,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           canRedo={history.future.length > 0}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          onDelete={handleDeleteSegment}
+          hasActiveSegment={!!activeSegment}
         />
         <div className="flex-grow flex flex-col gap-4">
             <div className="flex items-center gap-4">
@@ -303,6 +348,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                     setActiveClipIdForTools(clipId);
                     setIsAIToolsOpen(true);
                 }}
+                onReorderClips={(newMedia) => handleReorderClips(activeSegment.id, newMedia)}
               />
             )}
             <div className="bg-gray-800 rounded-lg p-4 h-64 flex-shrink-0 flex flex-col">
@@ -350,6 +396,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                 initialKeywords={mediaSearchMode === 'wizard' ? '' : (activeSegment?.search_keywords_for_media || '')}
                 narrationText={activeSegment?.narration_text || ''}
                 mode={mediaSearchMode}
+                videoTitle={title}
             />
         )}
         {isAIToolsOpen && activeSegment && (
@@ -363,7 +410,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                         handleUpdateSegmentMedia(activeSegment.id, activeClipIdForTools, newUrl, 'image'); 
                     }
                 }}
-                onUpdateAudio={(newUrl) => handleUpdateSegmentAudio(activeSegment.id, newUrl)}
+                onUpdateAudio={(newUrl, duration) => handleUpdateSegmentAudio(activeSegment.id, newUrl, duration)}
             />
         )}
          {isAudioModalOpen && activeSegment && (
@@ -371,7 +418,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                 isOpen={isAudioModalOpen}
                 onClose={() => setIsAudioModalOpen(false)}
                 segment={activeSegment}
-                onUpdateAudio={(newUrl) => handleUpdateSegmentAudio(activeSegment.id, newUrl)}
+                onUpdateAudio={(newUrl, duration) => handleUpdateSegmentAudio(activeSegment.id, newUrl, duration)}
             />
         )}
         <VideoPreviewModal 

@@ -54,6 +54,18 @@ export async function playGeneratedAudio(base64Audio: string) {
     }
 }
 
+export function getAudioDuration(url: string): Promise<number> {
+    return new Promise((resolve) => {
+        const audio = new Audio(url);
+        audio.onloadedmetadata = () => {
+            resolve(audio.duration);
+        };
+        audio.onerror = () => {
+            resolve(0);
+        };
+    });
+}
+
 
 export function imageUrlToBase64(url: string): Promise<{ base64: string, mimeType: string }> {
   return new Promise((resolve, reject) => {

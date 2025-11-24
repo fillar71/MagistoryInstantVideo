@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import type { Segment, TextOverlayStyle, WordTiming, TransitionEffect } from '../types';
-import { PlayIcon, MusicIcon, MagicWandIcon } from './icons';
+import type { Segment, TextOverlayStyle, WordTiming, TransitionEffect, MediaClip } from '../types';
+import { PlayIcon, MusicIcon, MagicWandIcon, EditIcon, TrashIcon } from './icons';
 import { generateSpeechFromText } from '../services/geminiService';
 import { createWavBlobUrl, estimateWordTimings, generateSubtitleChunks } from '../utils/media';
 import LoadingSpinner from './LoadingSpinner';
@@ -12,7 +12,7 @@ interface PreviewWindowProps {
   activeSegmentId: string;
   onUpdateSegments: (segments: Segment[]) => void; // Bulk update
   onTextChange: (segmentId: string, newText: string) => void; // Specific updates (less used now)
-  onUpdateAudio: (segmentId: string, newAudioUrl: string | undefined) => void;
+  onUpdateAudio: (segmentId: string, newAudioUrl: string | undefined, duration?: number) => void;
   onUpdateWordTimings: (segmentId: string, timings: WordTiming[]) => void;
   onAutoGenerateSubtitles: (segmentId?: string) => void;
   onUpdateTextOverlayStyle: (segmentId: string, styleUpdate: Partial<TextOverlayStyle>) => void;
@@ -23,6 +23,7 @@ interface PreviewWindowProps {
   onRemoveMedia: (segmentId: string, clipId: string) => void;
   onOpenVideoPreview: () => void;
   onEditClipWithAI: (clipId: string) => void;
+  onReorderClips: (newMedia: MediaClip[]) => void;
 }
 
 const fonts = [
@@ -36,7 +37,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     segment, segments, activeSegmentId, onUpdateSegments,
     onTextChange, onUpdateAudio, onUpdateWordTimings, onAutoGenerateSubtitles, 
     onUpdateTextOverlayStyle, onUpdateDuration, onUpdateTransition, isLastSegment, 
-    onOpenMediaSearch, onRemoveMedia, onOpenVideoPreview, onEditClipWithAI 
+    onOpenMediaSearch, onRemoveMedia, onOpenVideoPreview, onEditClipWithAI, onReorderClips
 }) => {
     const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
     const [generationProgress, setGenerationProgress] = useState('');
@@ -44,6 +45,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     const audioPlayerRef = useRef<HTMLAudioElement>(null);
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
     const [activeClipIndex, setActiveClipIndex] = useState(0);
+    const [draggedClipIndex, setDraggedClipIndex] = useState<number | null>(null);
     
     // Unified Script State
     const [fullScript, setFullScript] = useState('');
@@ -232,6 +234,32 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         }
     };
 
+    // Clip Drag & Drop Handlers
+    const handleClipDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+        setDraggedClipIndex(index);
+        (e.dataTransfer as any).effectAllowed = "move";
+        // Ghost image setting if needed
+    };
+
+    const handleClipDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        (e.dataTransfer as any).dropEffect = "move";
+    };
+
+    const handleClipDrop = (e: React.DragEvent<HTMLDivElement>, dropIndex: number) => {
+        e.preventDefault();
+        if (draggedClipIndex === null || draggedClipIndex === dropIndex) return;
+        
+        const newMedia = [...segment.media];
+        const [movedClip] = newMedia.splice(draggedClipIndex, 1);
+        newMedia.splice(dropIndex, 0, movedClip);
+        
+        onReorderClips(newMedia);
+        setDraggedClipIndex(null);
+        // Reset active clip to first to avoid confusion or out of bounds
+        setActiveClipIndex(0);
+    };
+
     // Autoplay when new audio URL is set
     useEffect(() => {
         if (segment.audioUrl && audioPlayerRef.current && !isGeneratingAudio) {
@@ -360,10 +388,74 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                     </div>
                 </div>
 
-                {/* NOTE: Media Clip List and + Button removed as per user request */}
+                {/* Media Clip Sequence Strip */}
+                <div className="relative">
+                    <h3 className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Clip Sequence (Drag to Reorder)</h3>
+                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar min-h-[70px]">
+                        {segment.media.map((clip, index) => {
+                            const isDragging = draggedClipIndex === index;
+                            const isCurrent = index === activeClipIndex;
+                            return (
+                                <div 
+                                    key={clip.id}
+                                    draggable
+                                    onDragStart={(e) => handleClipDragStart(e, index)}
+                                    onDragOver={handleClipDragOver}
+                                    onDrop={(e) => handleClipDrop(e, index)}
+                                    className={`relative flex-shrink-0 w-24 aspect-video rounded-md overflow-hidden cursor-pointer border-2 transition-all ${isCurrent ? 'border-purple-500' : 'border-gray-700 hover:border-gray-500'} ${isDragging ? 'opacity-30' : 'opacity-100'}`}
+                                    onClick={() => setActiveClipIndex(index)}
+                                >
+                                    {clip.type === 'video' ? (
+                                        <video src={clip.url} className="w-full h-full object-cover pointer-events-none" />
+                                    ) : (
+                                        <img src={clip.url} className="w-full h-full object-cover pointer-events-none" />
+                                    )}
+                                    
+                                    {/* Clip Tools overlay */}
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                         <button 
+                                            onClick={(e) => { e.stopPropagation(); onEditClipWithAI(clip.id); }}
+                                            className="p-1 bg-purple-600 rounded-full hover:bg-purple-500"
+                                            title="Edit with AI"
+                                         >
+                                            <MagicWandIcon className="w-3 h-3 text-white" />
+                                         </button>
+                                         <button 
+                                            onClick={(e) => { e.stopPropagation(); onOpenMediaSearch(clip.id); }}
+                                            className="p-1 bg-blue-600 rounded-full hover:bg-blue-500"
+                                            title="Replace Media"
+                                         >
+                                            <EditIcon className="w-3 h-3 text-white" />
+                                         </button>
+                                          {segment.media.length > 1 && (
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); onRemoveMedia(segment.id, clip.id); }}
+                                                className="p-1 bg-red-600 rounded-full hover:bg-red-500"
+                                                title="Remove Clip"
+                                            >
+                                                <TrashIcon className="w-3 h-3 text-white" />
+                                            </button>
+                                          )}
+                                    </div>
+                                    <div className="absolute bottom-0 right-0 bg-black/70 px-1 text-[8px] text-white">
+                                        {index + 1}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                        {/* Add Clip Button */}
+                        <button 
+                            onClick={() => onOpenMediaSearch(null)}
+                            className="flex-shrink-0 w-24 aspect-video bg-gray-800 border-2 border-dashed border-gray-600 rounded-md flex flex-col items-center justify-center hover:bg-gray-700 hover:border-purple-500 transition-colors gap-1 group"
+                        >
+                            <span className="text-2xl text-gray-400 group-hover:text-purple-400">+</span>
+                            <span className="text-[10px] text-gray-500 group-hover:text-purple-300">Add Clip</span>
+                        </button>
+                    </div>
+                </div>
                 
                 {/* Unified Script Textbox */}
-                <div className="mt-2 relative group flex-grow flex flex-col">
+                <div className="mt-1 relative group flex-grow flex flex-col">
                      <div className="flex justify-between items-center mb-1">
                          <h3 className="text-xs font-bold text-blue-400 uppercase tracking-wider">Full Video Script (All Segments)</h3>
                          <span className="text-[10px] text-gray-500">Separate segments with blank lines</span>
@@ -372,7 +464,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                          <textarea
                             value={fullScript}
                             onChange={handleScriptChange}
-                            className="w-full h-full min-h-[120px] p-3 bg-transparent border-none resize-none focus:ring-0 text-white placeholder-gray-500 text-lg leading-relaxed"
+                            className="w-full h-full min-h-[100px] p-3 bg-transparent border-none resize-none focus:ring-0 text-white placeholder-gray-500 text-lg leading-relaxed"
                             placeholder="Enter narration text here. Use double newlines to separate segments..."
                         />
                     </div>
@@ -382,6 +474,21 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             {/* Right Sidebar (Settings) */}
             <div className="w-full md:w-1/3 flex flex-col justify-between overflow-y-auto pr-2">
                 
+                {/* Duration Control */}
+                <div className="mb-4 bg-gray-700/30 p-3 rounded-lg border border-gray-700">
+                     <div className="flex justify-between items-center">
+                        <label className="text-xs text-gray-400 uppercase font-bold tracking-wider">Duration (s)</label>
+                        <input 
+                            type="number" 
+                            min="1" 
+                            step="0.1" 
+                            value={segment.duration} 
+                            onChange={handleDurationChange}
+                            className="w-20 p-1.5 bg-gray-800 border border-gray-600 rounded text-sm focus:ring-2 focus:ring-purple-500 outline-none text-right"
+                        />
+                     </div>
+                </div>
+
                 {/* Transition Control */}
                 <div className="mb-4 bg-gray-700/30 p-3 rounded-lg border border-gray-700">
                      <div className="flex justify-between items-center">

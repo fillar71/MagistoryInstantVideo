@@ -2,12 +2,13 @@
 import React, { useRef } from 'react';
 import type { Segment } from '../types';
 import { MusicIcon } from './icons';
+import { getAudioDuration } from '../utils/media';
 
 interface AudioModalProps {
   isOpen: boolean;
   onClose: () => void;
   segment: Segment;
-  onUpdateAudio: (newUrl: string | undefined) => void;
+  onUpdateAudio: (newUrl: string | undefined, duration?: number) => void;
 }
 
 const stockMusic = [
@@ -21,11 +22,12 @@ const stockMusic = [
 const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpdateAudio }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = (event.target as any).files?.[0];
     if (file) {
       const audioUrl = URL.createObjectURL(file);
-      onUpdateAudio(audioUrl);
+      const duration = await getAudioDuration(audioUrl);
+      onUpdateAudio(audioUrl, duration);
       onClose();
     }
   };
@@ -34,8 +36,9 @@ const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpd
     (fileInputRef.current as any)?.click();
   };
 
-  const handleSelectStock = (url: string) => {
-    onUpdateAudio(url);
+  const handleSelectStock = async (url: string) => {
+    const duration = await getAudioDuration(url);
+    onUpdateAudio(url, duration);
     onClose();
   }
 

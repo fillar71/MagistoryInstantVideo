@@ -1,4 +1,3 @@
-
 import React from 'react';
 import type { Segment } from '../types';
 import { MusicIcon, PlayIcon, ChevronLeftIcon, ChevronRightIcon } from './icons';
@@ -38,7 +37,7 @@ const SegmentCard: React.FC<SegmentCardProps> = ({
 
     const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         e.stopPropagation();
-        onUpdateVolume(segment.id, parseFloat((e.target as any).value));
+        onUpdateVolume(segment.id, parseFloat(e.target.value));
     }
 
     return (
@@ -88,22 +87,23 @@ const SegmentCard: React.FC<SegmentCardProps> = ({
                 </div>
             )}
 
-            {/* Audio Control */}
+            {/* Audio Volume Slider - Visible on Hover or Active */}
             {segment.audioUrl && !isCompact && (
-                <div className="absolute top-6 right-1 z-10 group/audio flex flex-col items-end">
-                    <div className="bg-black/70 p-1 rounded-full hover:w-24 hover:rounded-md transition-all duration-200 flex items-center gap-2 w-6 h-6 overflow-hidden group-hover/audio:bg-gray-900">
-                        <MusicIcon className="w-3 h-3 text-purple-300 flex-shrink-0 mx-auto" />
-                         <input 
-                            type="range" 
-                            min="0" 
-                            max="1" 
-                            step="0.1" 
-                            value={segment.audioVolume ?? 1} 
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={handleVolumeChange}
-                            className="w-16 h-1.5 accent-purple-500"
-                         />
-                    </div>
+                <div 
+                    className={`absolute top-7 right-1 z-20 flex items-center gap-1.5 bg-black/80 backdrop-blur-sm rounded-full pl-2 pr-2 py-1 border border-gray-700 transition-all duration-200 ${isActive ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}`}
+                    onClick={(e) => e.stopPropagation()} 
+                >
+                    <MusicIcon className="w-3 h-3 text-purple-400" />
+                    <input 
+                        type="range" 
+                        min="0" 
+                        max="1" 
+                        step="0.1" 
+                        value={segment.audioVolume ?? 1} 
+                        onChange={handleVolumeChange}
+                        className="w-16 h-1.5 accent-purple-500 cursor-pointer appearance-none bg-gray-600 rounded-lg"
+                        title={`Volume: ${Math.round((segment.audioVolume ?? 1) * 100)}%`}
+                    />
                 </div>
             )}
              

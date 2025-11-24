@@ -9,7 +9,7 @@ import {
     getVideosOperation,
     generateSpeechFromText
 } from '../services/geminiService';
-import { imageUrlToBase64, createWavBlobUrl } from '../utils/media';
+import { imageUrlToBase64, createWavBlobUrl, getAudioDuration } from '../utils/media';
 
 interface AIToolsModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ interface AIToolsModalProps {
   segment: Segment;
   activeClipId: string; // The ID of the clip we are modifying
   onUpdateMedia: (newUrl: string) => void; // This callback in parent will handle updating specific clip
-  onUpdateAudio: (newUrl: string) => void;
+  onUpdateAudio: (newUrl: string, duration?: number) => void;
 }
 
 type Tab = 'generate-image' | 'edit-image' | 'generate-video' | 'tts';
@@ -322,7 +322,7 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 
 
 // --- Text to Speech Tab ---
-const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string) => void; }> = ({ segment, onUpdateAudio }) => {
+const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string, duration?: number) => void; }> = ({ segment, onUpdateAudio }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [audioSrc, setAudioSrc] = useState<string | null>(segment.audioUrl || null);
     const [error, setError] = useState('');
@@ -335,8 +335,9 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string)
         try {
             const base64Audio = await generateSpeechFromText(segment.narration_text);
             const wavBlobUrl = createWavBlobUrl(base64Audio);
+            const duration = await getAudioDuration(wavBlobUrl);
             setAudioSrc(wavBlobUrl);
-            onUpdateAudio(wavBlobUrl);
+            onUpdateAudio(wavBlobUrl, duration);
 
         } catch (err) {
             setError('Failed to generate speech. Please try again.');
