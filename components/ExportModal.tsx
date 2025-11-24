@@ -4,8 +4,7 @@ import type { Segment, TextOverlayStyle, WordTiming, MediaClip } from '../types'
 import LoadingSpinner from './LoadingSpinner';
 import { DownloadIcon } from './icons';
 import { generateSubtitleChunks, audioBufferToWav } from '../utils/media';
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { toBlobURL } from '@ffmpeg/util';
+import type { FFmpeg } from '@ffmpeg/ffmpeg'; // Type-only import
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -71,7 +70,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     
     // Refs to maintain state inside async callbacks
     const statusRef = useRef<ExportStatus>('idle');
-    const ffmpegRef = useRef<FFmpeg>(new FFmpeg());
+    // Using nullable ref and dynamic import to avoid optimization issues
+    const ffmpegRef = useRef<FFmpeg | null>(null);
     const isCancelledRef = useRef(false);
     const loadingIntervalRef = useRef<number | null>(null);
 
@@ -119,7 +119,20 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     };
 
     const loadFFmpeg = async () => {
+        // Dynamically import FFmpeg to bypass Vite optimizer issues
+        if (!ffmpegRef.current) {
+            try {
+                const { FFmpeg } = await import('@ffmpeg/ffmpeg');
+                ffmpegRef.current = new FFmpeg();
+            } catch (e) {
+                console.error("Failed to load FFmpeg module dynamically:", e);
+                throw new Error("Failed to load video engine module. Please check your internet connection.");
+            }
+        }
+
         const ffmpeg = ffmpegRef.current;
+        if (!ffmpeg) return;
+
         if (!ffmpeg.loaded) {
             setStatus('loading_engine');
             setStatusText('Downloading video engine components...');
@@ -356,7 +369,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             if (isCancelledRef.current) return;
 
             const ffmpeg = ffmpegRef.current;
-            if (!ffmpeg.loaded) {
+            if (!ffmpeg || !ffmpeg.loaded) {
                 throw new Error("FFmpeg failed to load");
             }
 
