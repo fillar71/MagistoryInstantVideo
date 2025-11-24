@@ -102,13 +102,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         const parts = newText.split(/\n\n+/); // Split by double newline
         
         const newSegments = [...segments];
-        
-        // Handle segmentation changes
-        // 1. Update existing segments text
-        // 2. If text parts > segments, add new segments
-        // 3. If text parts < segments, ignore/truncate? 
-        // Let's assume we map 1-to-1 as much as possible
-        
         const maxLen = Math.max(parts.length, newSegments.length);
         const updatedSegments: Segment[] = [];
         
@@ -128,7 +121,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                     }
                 } else {
                     // Create new segment
-                    // Copy media from last segment or use default
                     const lastSeg = newSegments[newSegments.length - 1];
                     updatedSegments.push({
                         ...lastSeg,
@@ -136,15 +128,10 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                         narration_text: parts[i],
                         audioUrl: undefined,
                         wordTimings: undefined,
-                        media: lastSeg ? [...lastSeg.media] : [] // Shallow copy media clips
+                        media: lastSeg ? [...lastSeg.media] : [] 
                     });
                 }
             } else {
-                // Text parts ran out, but we have segments. Keep them?
-                // If we want strictly "text defines segments", we should remove them.
-                // But removing deletes media. Let's keep them but empty the text?
-                // Or simpler: Just map available text. If the user deleted a paragraph, maybe they want to delete the segment?
-                // Safe bet: Keep the segment, empty the text.
                 if (i < newSegments.length) {
                      updatedSegments.push({
                         ...newSegments[i],
@@ -156,11 +143,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             }
         }
         
-        // Filter out segments that might have been effectively removed if we went strict? 
-        // No, let's stick to the updated list.
-        
-        // However, React state batching means we should call the update function once.
-        // Only update if changed
         if (JSON.stringify(updatedSegments) !== JSON.stringify(segments)) {
             onUpdateSegments(updatedSegments);
         }
@@ -378,48 +360,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                     </div>
                 </div>
 
-                {/* Media Clip List */}
-                <div className="flex gap-2 overflow-x-auto py-2 items-center">
-                    {segment.media.map((clip, idx) => (
-                        <div 
-                            key={clip.id} 
-                            className={`relative flex-shrink-0 w-20 h-14 rounded-md overflow-hidden cursor-pointer border-2 transition-all ${idx === activeClipIndex ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-gray-600 hover:border-gray-400'}`}
-                            onClick={() => setActiveClipIndex(idx)}
-                        >
-                            {clip.type === 'video' ? (
-                                <video src={clip.url} className="w-full h-full object-cover" />
-                            ) : (
-                                <img src={clip.url} className="w-full h-full object-cover" />
-                            )}
-                            
-                            <div className={`absolute inset-0 bg-black/60 flex items-center justify-center gap-1 ${idx === activeClipIndex ? 'opacity-0 hover:opacity-100' : 'opacity-0'}`}>
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onOpenMediaSearch(clip.id); }}
-                                    className="p-1 bg-gray-700 rounded hover:bg-blue-600 text-white"
-                                    title="Replace"
-                                >
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                                </button>
-                                {segment.media.length > 1 && (
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); onRemoveMedia(segment.id, clip.id); }}
-                                        className="p-1 bg-gray-700 rounded hover:bg-red-600 text-white"
-                                        title="Remove"
-                                    >
-                                        &times;
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                    <button 
-                        onClick={() => onOpenMediaSearch(null)}
-                        className="flex-shrink-0 w-10 h-14 rounded-md border-2 border-dashed border-gray-600 hover:border-blue-500 hover:text-blue-500 flex items-center justify-center text-gray-400 transition-colors"
-                        title="Add another clip to this segment"
-                    >
-                        +
-                    </button>
-                </div>
+                {/* NOTE: Media Clip List and + Button removed as per user request */}
                 
                 {/* Unified Script Textbox */}
                 <div className="mt-2 relative group flex-grow flex flex-col">
@@ -515,17 +456,14 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
 
 
                 <div className="mt-auto bg-gray-800 border-t border-gray-700 pt-4">
-                    <h4 className="text-sm font-semibold mb-2 text-purple-300 uppercase tracking-wide">Audio Track</h4>
+                    {/* Hidden Audio element to maintain logic loop for karaoke sync */}
                     {segment.audioUrl && (
-                        <div className="mb-2">
-                             <audio 
-                                ref={audioPlayerRef} 
-                                controls 
-                                onTimeUpdate={handleTimeUpdate}
-                                src={segment.audioUrl} 
-                                className="w-full h-8" 
-                            />
-                        </div>
+                         <audio 
+                            ref={audioPlayerRef} 
+                            onTimeUpdate={handleTimeUpdate}
+                            src={segment.audioUrl} 
+                            className="hidden" 
+                        />
                     )}
                     
                     {/* Generation Status */}

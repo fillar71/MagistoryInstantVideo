@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { VideoScript } from './types';
 import PromptInput from './components/PromptInput';
@@ -26,6 +25,38 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const handleManualStart = () => {
+    // Create a blank template script
+    const initialScript: VideoScript = {
+        title: "New Project",
+        segments: [{
+            id: `segment-${Date.now()}`,
+            narration_text: "Welcome to your new video. Click here to edit text, or use the Media button to upload your own clips.",
+            search_keywords_for_media: "placeholder",
+            media: [{
+                id: `clip-${Date.now()}`,
+                // Simple placeholder color image
+                url: "https://placehold.co/1280x720/1f2937/ffffff?text=Click+Media+to+Add+Clips", 
+                type: 'image'
+            }],
+            duration: 5,
+            audioVolume: 1.0,
+            transition: 'fade',
+            textOverlayStyle: {
+                fontFamily: 'Arial, sans-serif',
+                fontSize: 40,
+                color: '#EAB308',
+                position: 'bottom',
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                animation: 'scale',
+                maxCaptionLines: 2,
+            }
+        }]
+    };
+    setVideoScript(initialScript);
+    setError(null);
+  };
   
   const handleBackToStart = () => {
     setVideoScript(null);
@@ -50,7 +81,7 @@ const App: React.FC = () => {
 
       <main className="p-4 md:p-8">
         {!videoScript && !isLoading && !error && (
-          <PromptInput onGenerate={handleGenerateScript} />
+          <PromptInput onGenerate={handleGenerateScript} onManualStart={handleManualStart} />
         )}
         
         {isLoading && (

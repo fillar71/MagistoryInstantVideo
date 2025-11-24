@@ -31,7 +31,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     const isCancelledRef = useRef(false);
 
     useEffect(() => {
-        // Reset state when modal is opened
         if (isOpen) {
             setStatus('idle');
             setProgress(0);
@@ -40,7 +39,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             isCancelledRef.current = false;
             loadFFmpeg();
         } else {
-             // Clean up logic if needed
              isCancelledRef.current = true;
         }
     }, [isOpen]);
@@ -49,8 +47,15 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         const ffmpeg = ffmpegRef.current;
         if (!ffmpeg.loaded) {
             try {
-                // Using jsdelivr which is often more reliable for these assets
-                const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm';
+                // Attach progress listener for encoding phase
+                ffmpeg.on('progress', ({ progress, time }) => {
+                    // progress is 0-1
+                    // Encoding phase is 75% to 100%
+                    const p = 75 + (progress * 25);
+                    if (p < 100) setProgress(p);
+                });
+
+                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
                 await ffmpeg.load({
                     coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
                     wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
@@ -78,7 +83,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         const text = segment.narration_text;
         if (!text || !style) return;
         
-        // Only draw if timings exist (explicitly generated)
         const timings = segment.wordTimings;
         if (!timings || timings.length === 0) {
              return;
@@ -91,7 +95,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         const lineHeight = style.fontSize * 1.2;
         const animation = style.animation || 'none';
 
-        // Calculate Chunks (Pages)
         const chunks = generateSubtitleChunks(
             timings,
             style.fontSize,
@@ -99,15 +102,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             maxWidth
         );
 
-        // Find active Chunk
         const activeChunk = chunks.find(c => currentTimeInSegment >= c.start && currentTimeInSegment <= c.end);
         
-        // If no active chunk but we are at start, show first chunk
         const displayChunk = activeChunk || (currentTimeInSegment < 0.1 ? chunks[0] : null);
 
         if (!displayChunk) return;
 
-        // Re-calculate lines for this chunk only to draw them
         const words = displayChunk.timings;
         const lines: WordTiming[][] = [];
         let currentLine: WordTiming[] = [];
@@ -130,7 +130,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
         const totalTextHeight = lines.length * lineHeight;
 
-        // Calculate Y position for the block
         let y;
         switch(style.position) {
             case 'top':
@@ -145,7 +144,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 break;
         }
 
-        // Draw Background (Optional)
         if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
              let maxLineWidth = 0;
              lines.forEach(line => {
@@ -162,11 +160,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             ctx.fillRect(bgX, y - rectHeight / 2 - (lineHeight / 2), rectWidth, rectHeight);
         }
 
-        // Draw Lines
         lines.forEach((line, lineIndex) => {
             const lineStr = line.map(t => t.word).join(' ');
             const lineWidth = ctx.measureText(lineStr).width;
-            let currentX = (RENDER_WIDTH - lineWidth) / 2; // Center align
+            let currentX = (RENDER_WIDTH - lineWidth) / 2; 
             const lineY = y - (totalTextHeight / 2) + (lineIndex * lineHeight);
 
             line.forEach(timing => {
@@ -181,7 +178,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                  }
 
                  let fillStyle = style.color;
-                 // Future words are white (or inactive color)
                  if (!isActive && !isPast && timing.start !== -1) {
                      fillStyle = '#FFFFFF'; 
                  } else if (isActive && animation === 'highlight') {
@@ -208,7 +204,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                  }
 
                  ctx.fillStyle = fillStyle;
-                 ctx.textAlign = 'left'; // Important since we are positioning manually
+                 ctx.textAlign = 'left'; 
                  ctx.fillText(wordWithSpace, currentX, lineY);
                  ctx.restore();
                  
@@ -224,35 +220,29 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         
         if (!ffmpeg.loaded) {
             await loadFFmpeg();
-            if (!ffmpeg.loaded) return; // Failed to load
+            if (!ffmpeg.loaded) return; 
         }
 
         const totalDuration = segments.reduce((acc, s) => acc + s.duration, 0);
 
         try {
-            // --- PHASE 1: AUDIO RENDERING ---
             setStatus('rendering_audio');
             setStatusText('Mixing audio tracks...');
-            setProgress(10);
+            setProgress(5);
 
-            // Create Offline Context for fast rendering
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             const OfflineContextClass = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
             const sampleRate = 44100;
-            // offline context length in frames
             const length = Math.ceil(totalDuration * sampleRate);
             const offlineCtx = new OfflineContextClass(1, length, sampleRate);
             
             let currentAudioTime = 0;
             
-            // Load all audio files
             for (const s of segments) {
                 if (s.audioUrl) {
                     try {
                         const response = await fetch(s.audioUrl);
                         const arrayBuffer = await response.arrayBuffer();
-                        // We need a temp regular ctx to decode if offline ctx decoding is tricky in some browsers
-                        // But usually offlineCtx.decodeAudioData works fine.
                         const audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer);
                         
                         const source = offlineCtx.createBufferSource();
@@ -272,13 +262,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 currentAudioTime += s.duration;
             }
 
-            // Render Audio
             const renderedBuffer = await offlineCtx.startRendering();
             const wavBytes = audioBufferToWav(renderedBuffer);
             await ffmpeg.writeFile('audio.wav', new Uint8Array(wavBytes));
+            setProgress(15);
 
 
-            // --- PHASE 2: VIDEO FRAME RENDERING ---
             setStatus('rendering_video');
             setStatusText('Loading visual assets...');
             
@@ -288,7 +277,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             if (!ctx) throw new Error("Could not create canvas context.");
 
-            // Load Images/Videos
             const allClips: { segmentIndex: number, clipIndex: number, clip: MediaClip }[] = [];
             segments.forEach((s, sIdx) => {
                 s.media.forEach((c, cIdx) => {
@@ -319,7 +307,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         vid.src = safeUrl;
                         vid.muted = true;
                         vid.playsInline = true;
-                        // Need metadata for duration etc
                         await new Promise((res, rej) => {
                             vid.onloadedmetadata = res;
                             vid.onerror = rej;
@@ -333,7 +320,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
             if (isCancelledRef.current) return;
 
-            // Segment Time Map
             const segmentStartTimes = segments.reduce((acc, s, i) => {
                 const prevTime = i > 0 ? acc[i-1] : 0;
                 const duration = i > 0 ? segments[i-1].duration : 0;
@@ -342,13 +328,13 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             }, [] as number[]);
 
             const totalFrames = Math.ceil(totalDuration * FRAME_RATE);
-            
+            setStatusText('Rendering video frames...');
+
             for (let i = 0; i < totalFrames; i++) {
                 if (isCancelledRef.current) return;
                 
                 const currentTime = i / FRAME_RATE;
                 
-                // Find Current Segment
                 let segmentIndex = segmentStartTimes.findIndex((startTime, idx) => {
                      const endTime = startTime + segments[idx].duration;
                      return currentTime >= startTime && currentTime < endTime;
@@ -359,7 +345,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const segmentStartTime = segmentStartTimes[segmentIndex];
                 const timeInSegment = currentTime - segmentStartTime;
                 
-                // Find Current Clip
                 const clipDuration = currentSegment.duration / currentSegment.media.length;
                 const clipIndex = Math.min(
                     currentSegment.media.length - 1, 
@@ -368,7 +353,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const currentClip = currentSegment.media[clipIndex];
                 const currentAsset = loadedAssets.get(currentClip.id);
 
-                // Draw Frame
                 ctx.fillStyle = 'black';
                 ctx.fillRect(0, 0, RENDER_WIDTH, RENDER_HEIGHT);
 
@@ -378,9 +362,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         if (asset instanceof HTMLImageElement) {
                             ctx.drawImage(asset, 0, 0, RENDER_WIDTH, RENDER_HEIGHT);
                         } else if (asset instanceof HTMLVideoElement) {
-                            // Seeking is slow, but necessary for frame accuracy in FFmpeg generation
-                            // To optimize, we only seek if time changed significantly or it's a new clip
-                            // However, for exact output, we set currentTime.
                             asset.currentTime = Math.min(asset.duration || 0, time);
                             ctx.drawImage(asset, 0, 0, RENDER_WIDTH, RENDER_HEIGHT);
                         }
@@ -390,7 +371,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const timeInClip = timeInSegment % clipDuration;
                 drawAsset(currentAsset, timeInClip);
                 
-                // Draw Transition
                 const timeToEndOfSegment = currentSegment.duration - timeInSegment;
                 if (currentSegment?.transition === 'fade' && timeToEndOfSegment < TRANSITION_DURATION_S && segmentIndex < segments.length - 1) {
                     const transitionProgress = 1 - (timeToEndOfSegment / TRANSITION_DURATION_S);
@@ -407,58 +387,43 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 
                 drawKaraokeText(ctx, currentSegment, timeInSegment);
 
-                // Convert Frame to Blob/Buffer
                 const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.8));
                 if (blob) {
                     const buffer = await blob.arrayBuffer();
-                    // Write to FFmpeg virtual FS
-                    // name format: frame_001.jpg
                     const frameName = `frame_${String(i).padStart(3, '0')}.jpg`;
                     await ffmpeg.writeFile(frameName, new Uint8Array(buffer));
                 }
 
-                // Update Progress
-                const percent = 20 + ((i / totalFrames) * 50); // 20% to 70%
+                // Update Progress (20% to 75%)
+                const percent = 20 + ((i / totalFrames) * 55); 
                 setProgress(percent);
                 setStatusText(`Rendering frame ${i}/${totalFrames}...`);
+
+                // Crucial: Yield to main thread to allow UI updates
+                if (i % 5 === 0) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
             }
 
-            // --- PHASE 3: ENCODING ---
             setStatus('encoding');
             setStatusText('Encoding final video (this might take a moment)...');
-            setProgress(75);
             
-            // Run FFmpeg
-            // -r 30: Input framerate
-            // -i frame_%03d.jpg: Input images
-            // -i audio.wav: Input audio
-            // -c:v libx264: Video codec
-            // -pix_fmt yuv420p: Pixel format compatibility
-            // -shortest: Finish when shortest input stream ends
             await ffmpeg.exec([
                 '-framerate', String(FRAME_RATE),
                 '-i', 'frame_%03d.jpg',
                 '-i', 'audio.wav',
                 '-c:v', 'libx264',
                 '-pix_fmt', 'yuv420p',
-                '-preset', 'ultrafast', // Faster encoding for web
+                '-preset', 'ultrafast',
                 'output.mp4'
             ]);
 
-            setProgress(95);
             const data = await ffmpeg.readFile('output.mp4');
             const url = URL.createObjectURL(new Blob([data], { type: 'video/mp4' }));
             
             setVideoUrl(url);
             setStatus('complete');
             setProgress(100);
-
-            // Cleanup files to free memory
-            // Not strictly necessary as browser refreshes clear WASM mem, but good practice
-            // await ffmpeg.deleteFile('audio.wav');
-            // for (let i = 0; i < totalFrames; i++) {
-            //    await ffmpeg.deleteFile(`frame_${String(i).padStart(3, '0')}.jpg`);
-            // }
 
         } catch (err: any) {
             console.error("Export failed:", err);

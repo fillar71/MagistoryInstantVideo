@@ -75,7 +75,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(segments[0]?.id || null);
   // Media Search State
   const [isMediaSearchOpen, setIsMediaSearchOpen] = useState(false);
-  const [mediaSearchTarget, setMediaSearchTarget] = useState<{clipId: string | null}>({ clipId: null }); // clipId null means ADD new clip
+  const [mediaSearchTarget, setMediaSearchTarget] = useState<{clipId: string | null}>({ clipId: null });
+  const [mediaSearchMode, setMediaSearchMode] = useState<'default' | 'wizard'>('default');
 
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isAIToolsOpen, setIsAIToolsOpen] = useState(false);
@@ -127,6 +128,41 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     );
   }, [updateSegments]);
 
+  const handleAddSegment = useCallback(() => {
+      setMediaSearchMode('wizard');
+      setMediaSearchTarget({ clipId: null });
+      setIsMediaSearchOpen(true);
+  }, []);
+
+  const handleCreateNewSegment = useCallback((newMediaUrl: string, newMediaType: 'image' | 'video') => {
+      const newSegmentId = `segment-${Date.now()}`;
+      const newSegment: Segment = {
+          id: newSegmentId,
+          narration_text: "",
+          search_keywords_for_media: "",
+          media: [{
+              id: `clip-${Date.now()}`,
+              url: newMediaUrl,
+              type: newMediaType
+          }],
+          duration: 3,
+          audioVolume: 1.0,
+          transition: 'fade',
+          textOverlayStyle: {
+              fontFamily: 'Arial, sans-serif',
+              fontSize: 40,
+              color: '#EAB308',
+              position: 'bottom',
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              animation: 'scale',
+              maxCaptionLines: 2,
+          }
+      };
+      
+      updateSegments(prev => [...prev, newSegment]);
+      setActiveSegmentId(newSegmentId);
+  }, [updateSegments]);
+
   const handleRemoveMedia = useCallback((segmentId: string, clipId: string) => {
       updateSegments(prevSegments => 
         prevSegments.map(s => {
@@ -159,11 +195,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const handleAutoGenerateSubtitles = useCallback((segmentId?: string) => {
       updateSegments(prevSegments =>
         prevSegments.map(s => {
-            // If segmentId is provided, only update that segment. Otherwise, update all.
             if (segmentId && s.id !== segmentId) return s;
-            
-            // Don't overwrite if already exists unless specifically requested? 
-            // For now, we just generate based on current text and duration.
             return {
                 ...s,
                 wordTimings: estimateWordTimings(s.narration_text, s.duration)
@@ -212,10 +244,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
       const newSegments = [...prevSegments];
       if (direction === 'left' && segmentIndex > 0) {
-        // Swap with the previous segment
         [newSegments[segmentIndex - 1], newSegments[segmentIndex]] = [newSegments[segmentIndex], newSegments[segmentIndex - 1]];
       } else if (direction === 'right' && segmentIndex < newSegments.length - 1) {
-        // Swap with the next segment
         [newSegments[segmentIndex + 1], newSegments[segmentIndex]] = [newSegments[segmentIndex], newSegments[segmentIndex + 1]];
       }
       
@@ -249,12 +279,12 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             </div>
             {activeSegment && (
               <PreviewWindow 
-                segments={segments} // Pass full segments
+                segments={segments} 
                 activeSegmentId={activeSegmentId!}
-                onUpdateSegments={updateSegments} // Pass bulk update
-                segment={activeSegment} // Pass active for media preview convenience
+                onUpdateSegments={updateSegments} 
+                segment={activeSegment} 
                 
-                onTextChange={handleUpdateSegmentText} // Can be deprecated if full script logic used
+                onTextChange={handleUpdateSegmentText}
                 onUpdateAudio={handleUpdateSegmentAudio}
                 onUpdateWordTimings={handleUpdateWordTimings}
                 onAutoGenerateSubtitles={handleAutoGenerateSubtitles}
@@ -263,6 +293,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                 onUpdateTransition={handleUpdateSegmentTransition}
                 isLastSegment={isLastSegment}
                 onOpenMediaSearch={(clipId) => {
+                    setMediaSearchMode('default');
                     setMediaSearchTarget({ clipId });
                     setIsMediaSearchOpen(true);
                 }}
@@ -301,16 +332,24 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                     onUpdateVolume={handleUpdateSegmentVolume}
                     timelineZoom={timelineZoom}
                     onNudgeSegment={handleNudgeSegment}
+                    onAddSegment={handleAddSegment}
                 />
             </div>
         </div>
-        {isMediaSearchOpen && activeSegment && (
+        {isMediaSearchOpen && (
             <MediaSearchModal
                 isOpen={isMediaSearchOpen}
                 onClose={() => setIsMediaSearchOpen(false)}
-                onSelectMedia={(newUrl, newType) => handleUpdateSegmentMedia(activeSegment.id, mediaSearchTarget.clipId, newUrl, newType)}
-                initialKeywords={activeSegment.search_keywords_for_media}
-                narrationText={activeSegment.narration_text}
+                onSelectMedia={(newUrl, newType) => {
+                    if (mediaSearchMode === 'wizard') {
+                        handleCreateNewSegment(newUrl, newType);
+                    } else if (activeSegment) {
+                        handleUpdateSegmentMedia(activeSegment.id, mediaSearchTarget.clipId, newUrl, newType);
+                    }
+                }}
+                initialKeywords={mediaSearchMode === 'wizard' ? '' : (activeSegment?.search_keywords_for_media || '')}
+                narrationText={activeSegment?.narration_text || ''}
+                mode={mediaSearchMode}
             />
         )}
         {isAIToolsOpen && activeSegment && (
@@ -320,9 +359,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                 segment={activeSegment}
                 activeClipId={activeClipIdForTools || activeSegment.media[0].id}
                 onUpdateMedia={(newUrl) => {
-                    // AI Tools typically assume updating the current image
                     if (activeClipIdForTools) {
-                        handleUpdateSegmentMedia(activeSegment.id, activeClipIdForTools, newUrl, 'image'); // AI Image gen usually returns images
+                        handleUpdateSegmentMedia(activeSegment.id, activeClipIdForTools, newUrl, 'image'); 
                     }
                 }}
                 onUpdateAudio={(newUrl) => handleUpdateSegmentAudio(activeSegment.id, newUrl)}
