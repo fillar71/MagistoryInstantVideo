@@ -137,7 +137,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
+      const file = (e.target as any).files?.[0];
       if (file) {
           const objectUrl = URL.createObjectURL(file);
           const type = file.type.startsWith('video/') ? 'video' : 'image';
@@ -158,7 +158,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
               
               <div className="grid grid-cols-2 gap-6">
                   <button 
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => (fileInputRef.current as any)?.click()}
                     className="flex flex-col items-center justify-center p-8 bg-gray-700 hover:bg-purple-600 rounded-xl transition-all duration-300 group border-2 border-transparent hover:border-purple-300"
                   >
                       <div className="p-4 bg-gray-600 rounded-full mb-4 group-hover:bg-purple-500">
@@ -254,7 +254,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
             <input
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => setQuery((e.target as any).value)}
                 placeholder="Enter search keywords..."
                 className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none"
             />
@@ -322,7 +322,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                       onChange={handleFileUpload}
                   />
                   <button 
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => (fileInputRef.current as any)?.click()}
                     className="px-6 py-3 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 shadow-lg"
                   >
                       Browse Files
@@ -349,10 +349,10 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                                     loop 
                                     playsInline 
                                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                    onMouseOver={e => e.currentTarget.play().catch(() => {})}
+                                    onMouseOver={e => (e.currentTarget as any).play().catch(() => {})}
                                     onMouseOut={e => {
-                                        e.currentTarget.pause();
-                                        e.currentTarget.currentTime = 0;
+                                        (e.currentTarget as any).pause();
+                                        (e.currentTarget as any).currentTime = 0;
                                     }}
                                 />
                             ) : (

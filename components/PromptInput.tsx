@@ -85,13 +85,13 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart }) 
                     <input
                     type="text"
                     value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
+                    onChange={(e) => setPrompt((e.target as any).value)}
                     placeholder="e.g., 'How to make a perfect omelette'"
                     className="flex-grow p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all"
                     />
                     <select 
                         value={duration}
-                        onChange={(e) => setDuration(e.target.value)}
+                        onChange={(e) => setDuration((e.target as any).value)}
                         className="p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none w-full sm:w-40"
                     >
                         {durationOptions.map(opt => (

@@ -35,12 +35,12 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
   const playAudioForSegment = (segment: Segment | null) => {
     if (audioRef.current) {
         if (segment?.audioUrl) {
-            audioRef.current.src = segment.audioUrl;
-            audioRef.current.volume = segment.audioVolume ?? 1.0;
-            audioRef.current.play().catch(e => console.error("Audio play failed:", e));
+            (audioRef.current as any).src = segment.audioUrl;
+            (audioRef.current as any).volume = segment.audioVolume ?? 1.0;
+            (audioRef.current as any).play().catch(e => console.error("Audio play failed:", e));
         } else {
-            audioRef.current.pause();
-            audioRef.current.src = '';
+            (audioRef.current as any).pause();
+            (audioRef.current as any).src = '';
         }
     }
   };
@@ -53,18 +53,18 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
     let startTime = Date.now();
 
     // Track internal time within the segment for karaoke and clip switching
-    const intervalId = window.setInterval(() => {
+    const intervalId = (window as any).setInterval(() => {
         const delta = (Date.now() - startTime) / 1000;
         setCurrentTimeInSegment(delta);
     }, 50);
 
-    timerRef.current = window.setTimeout(() => {
-        window.clearInterval(intervalId); // Stop tracking time for this segment
+    timerRef.current = (window as any).setTimeout(() => {
+        (window as any).clearInterval(intervalId); // Stop tracking time for this segment
         setCurrentTimeInSegment(0);
 
         if (currentIndexRef.current >= segments.length - 1) {
             // End of video
-            if (audioRef.current) audioRef.current.pause();
+            if (audioRef.current) (audioRef.current as any).pause();
             return;
         }
         
@@ -108,12 +108,12 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
       const totalDurationMs = segments.reduce((acc, seg) => acc + (seg.duration * 1000), 0);
       const startTime = Date.now();
       
-      progressRef.current = window.setInterval(() => {
+      progressRef.current = (window as any).setInterval(() => {
           const elapsedTime = Date.now() - startTime;
           const newProgress = Math.min(100, (elapsedTime / totalDurationMs) * 100);
           setProgress(newProgress);
           if (newProgress >= 100) {
-              if (progressRef.current) clearInterval(progressRef.current);
+              if (progressRef.current) (window as any).clearInterval(progressRef.current);
           }
       }, 50);
 
@@ -121,10 +121,10 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
-      if (progressRef.current) clearInterval(progressRef.current);
+      if (progressRef.current) (window as any).clearInterval(progressRef.current);
       if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
+        (audioRef.current as any).pause();
+        (audioRef.current as any).src = '';
       }
     };
   }, [isOpen, segments]);

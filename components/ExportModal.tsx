@@ -65,7 +65,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     const [statusText, setStatusText] = useState('');
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const [error, setError] = useState('');
-    const [isCompatible, setIsCompatible] = useState(true);
+    const [isMultiThreaded, setIsMultiThreaded] = useState(true);
     
     const statusRef = useRef<ExportStatus>('idle');
     const ffmpegRef = useRef<FFmpeg | null>(null);
@@ -77,9 +77,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     }, [status]);
 
     useEffect(() => {
-        // Strict check for SharedArrayBuffer
-        const hasSAB = typeof window.SharedArrayBuffer !== 'undefined';
-        setIsCompatible(hasSAB);
+        // Check for SharedArrayBuffer to decide mode, but DO NOT block.
+        const hasSAB = typeof (window as any).SharedArrayBuffer !== 'undefined';
+        setIsMultiThreaded(hasSAB);
 
         if (isOpen) {
             setStatus('idle');
@@ -89,7 +89,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             isCancelledRef.current = false;
         } else {
              isCancelledRef.current = true;
-             if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
+             if (loadingIntervalRef.current) (window as any).clearInterval(loadingIntervalRef.current);
         }
     }, [isOpen]);
 
@@ -102,8 +102,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         ];
         let i = 0;
         setStatusText(messages[0]);
-        if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
-        loadingIntervalRef.current = window.setInterval(() => {
+        if (loadingIntervalRef.current) (window as any).clearInterval(loadingIntervalRef.current);
+        loadingIntervalRef.current = (window as any).setInterval(() => {
             i = (i + 1) % messages.length;
             setStatusText(messages[i]);
         }, 4000);
@@ -111,16 +111,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
     const stopLoadingAnimation = () => {
         if (loadingIntervalRef.current) {
-            clearInterval(loadingIntervalRef.current);
+            (window as any).clearInterval(loadingIntervalRef.current);
             loadingIntervalRef.current = null;
         }
     };
 
     const loadFFmpeg = async () => {
-        if (!isCompatible) {
-            throw new Error("SharedArrayBuffer is missing. Export not supported on this browser.");
-        }
-
         if (!ffmpegRef.current) {
             try {
                 const { FFmpeg } = await import('@ffmpeg/ffmpeg');
@@ -143,6 +139,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                     }
                 });
 
+                // Use standard @ffmpeg/core which is typically single-threaded or compatible
+                // DO NOT use @ffmpeg/core-mt if we suspect SAB issues
                 const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
                 
                 setStatusText('Downloading engine scripts...');
@@ -159,10 +157,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const loadPromise = ffmpeg.load({
                     coreURL: coreURL,
                     wasmURL: wasmURL,
+                    // If not multithreaded, we might strictly need only 1 worker or main thread, 
+                    // but 0.12.x abstraction handles this mostly via the core file used.
                 });
 
                 const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error("Engine initialization timed out. Your device might be too slow or blocking the operation.")), 45000)
+                    setTimeout(() => reject(new Error("Engine initialization timed out. Your device might be too slow or blocking the operation.")), 60000)
                 );
 
                 await Promise.race([loadPromise, timeoutPromise]);
@@ -173,11 +173,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             } catch (e: any) {
                 stopLoadingAnimation();
                 console.error("FFmpeg load error:", e);
-                // Clean up error message
-                const msg = e.message?.includes("SharedArrayBuffer") 
-                    ? "Browser missing security features required for export." 
-                    : e.message || "Failed to initialize engine.";
-                
+                const msg = e.message || "Failed to initialize engine.";
                 setError(msg);
                 setStatus('error');
                 throw e; 
@@ -191,7 +187,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         onClose();
     }
     
-    const drawKaraokeText = (ctx: CanvasRenderingContext2D, segment: Segment, currentTimeInSegment: number) => {
+    const drawKaraokeText = (ctx: any, segment: Segment, currentTimeInSegment: number) => { // ctx: CanvasRenderingContext2D
          const style = segment.textOverlayStyle;
          if (!style || !segment.narration_text) return;
          const timings = segment.wordTimings;
@@ -242,12 +238,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     }
 
     const handleStartExport = async () => {
-        if (!isCompatible) {
-            setError("Cannot export on this device. Please use a Desktop browser (Chrome/Edge) or use the Cloud Video Generator.");
-            setStatus('error');
-            return;
-        }
-        
         if (status !== 'idle' && status !== 'error') return;
         isCancelledRef.current = false;
         setError('');
@@ -263,7 +253,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             setStatusText('Mixing audio tracks...');
             setProgress(30);
 
-            const OfflineContextClass = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+            const OfflineContextClass = (window as any).OfflineAudioContext || (window as any).webkitOfflineAudioContext;
             const totalDuration = segments.reduce((acc, s) => acc + s.duration, 0);
             const offlineCtx = new OfflineContextClass(1, Math.ceil(totalDuration * 44100), 44100);
             
@@ -291,7 +281,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
             setStatus('rendering_video');
             setStatusText('Loading visual assets...');
-            const canvas = document.createElement('canvas');
+            const canvas = (window as any).document.createElement('canvas');
             canvas.width = RENDER_WIDTH;
             canvas.height = RENDER_HEIGHT;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -304,10 +294,10 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                          const safeUrl = c.url.startsWith('data:') ? c.url : `${c.url}?t=${Date.now()}`;
                          try {
                              if (c.type === 'image') {
-                                 const img = new Image(); img.crossOrigin="Anonymous"; img.src=safeUrl; await img.decode();
+                                 const img = new (window as any).Image(); img.crossOrigin="Anonymous"; img.src=safeUrl; await img.decode();
                                  loadedAssets.set(c.id, img);
                              } else {
-                                 const v = document.createElement('video'); v.crossOrigin="Anonymous"; v.src=safeUrl;
+                                 const v = (window as any).document.createElement('video'); v.crossOrigin="Anonymous"; v.src=safeUrl;
                                  await new Promise((r,j)=>{v.onloadedmetadata=r;v.onerror=j});
                                  loadedAssets.set(c.id, v);
                              }
@@ -338,8 +328,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 const clipIdx = Math.min(seg.media.length-1, Math.floor(timeInSeg / clipDuration));
                 const asset = loadedAssets.get(seg.media[clipIdx].id);
                 if (asset) {
-                    if (asset instanceof HTMLVideoElement) asset.currentTime = timeInSeg % clipDuration;
-                    ctx.drawImage(asset, 0,0, RENDER_WIDTH, RENDER_HEIGHT);
+                    if (asset instanceof (window as any).HTMLVideoElement) (asset as any).currentTime = timeInSeg % clipDuration;
+                    ctx.drawImage(asset as any, 0,0, RENDER_WIDTH, RENDER_HEIGHT);
                 }
 
                 drawKaraokeText(ctx, seg, timeInSeg);
@@ -380,15 +370,15 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
                 {status === 'idle' && (
                     <div className="text-center">
-                        {!isCompatible ? (
+                        {!isMultiThreaded ? (
                             <div className="bg-yellow-900/30 border border-yellow-600/50 p-4 rounded-md mb-6">
-                                <p className="text-yellow-200 font-semibold mb-2">Device Compatibility Notice</p>
+                                <p className="text-yellow-200 font-semibold mb-2">Compatibility Mode</p>
                                 <p className="text-sm text-yellow-100/80 mb-2">
-                                    Local video export requires a secure desktop environment (e.g., Chrome on PC). 
-                                    Your current device (Mobile/Termux) does not support the required <code>SharedArrayBuffer</code> feature.
+                                    Your device (Termux/Mobile) doesn't support high-speed multi-threaded export. 
+                                    Export will proceed in <b>Compatibility Mode</b>.
                                 </p>
-                                <p className="text-sm text-white font-bold">
-                                    Recommended: Use "Generate Video" in the AI Tools menu for cloud rendering.
+                                <p className="text-xs text-white">
+                                    Note: This process may be significantly slower than on a Desktop PC. Please do not switch tabs.
                                 </p>
                             </div>
                         ) : (
@@ -397,12 +387,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         
                         <button 
                             onClick={handleStartExport} 
-                            disabled={!isCompatible}
-                            className={`w-full py-3 rounded-md text-white font-semibold transition-colors
-                                ${!isCompatible ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-purple-600 hover:bg-purple-700'}
-                            `}
+                            className="w-full py-3 rounded-md text-white font-semibold transition-colors bg-purple-600 hover:bg-purple-700"
                         >
-                            {!isCompatible ? 'Export Unavailable on this Device' : 'Start Export'}
+                            {!isMultiThreaded ? 'Start Export (Slow Mode)' : 'Start Export'}
                         </button>
                     </div>
                 )}

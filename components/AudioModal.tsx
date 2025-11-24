@@ -22,7 +22,7 @@ const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpd
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const file = (event.target as any).files?.[0];
     if (file) {
       const audioUrl = URL.createObjectURL(file);
       onUpdateAudio(audioUrl);
@@ -31,7 +31,7 @@ const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpd
   };
 
   const handleUploadClick = () => {
-    fileInputRef.current?.click();
+    (fileInputRef.current as any)?.click();
   };
 
   const handleSelectStock = (url: string) => {

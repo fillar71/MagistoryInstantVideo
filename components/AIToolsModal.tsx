@@ -101,7 +101,7 @@ const GenerateImageTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
         <div>
             <p className="text-gray-300 mb-4">Create a new image from a text description. The result will be a 16:9 image.</p>
             <div className="flex gap-2 mb-4">
-                <input type="text" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="e.g., A futuristic city skyline at sunset" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
+                <input type="text" value={prompt} onChange={e => setPrompt((e.target as any).value)} placeholder="e.g., A futuristic city skyline at sunset" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
                 <button onClick={handleGenerate} disabled={isLoading || !prompt} className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center gap-2">
                     {isLoading && <LoadingSpinner />} Generate
                 </button>
@@ -155,7 +155,7 @@ const EditImageTab: React.FC<{ mediaUrl: string; onUpdateMedia: (url: string) =>
          <div>
             <p className="text-gray-300 mb-4">Modify the selected image using a text command.</p>
             <div className="flex gap-2 mb-4">
-                <input type="text" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="e.g., Add a retro filter, make it black and white" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
+                <input type="text" value={prompt} onChange={e => setPrompt((e.target as any).value)} placeholder="e.g., Add a retro filter, make it black and white" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
                 <button onClick={handleEdit} disabled={isLoading || !prompt} className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center gap-2">
                     {isLoading && <LoadingSpinner />} Edit
                 </button>
@@ -216,7 +216,7 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
     useEffect(() => {
         // Cleanup polling on unmount
         return () => {
-            if (pollingRef.current) window.clearInterval(pollingRef.current);
+            if (pollingRef.current) (window as any).clearInterval(pollingRef.current);
         }
     }, []);
 
@@ -233,7 +233,7 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
         setResult(null);
         let messageIndex = 0;
         setLoadingMessage(videoGenMessages[messageIndex]);
-        const messageInterval = window.setInterval(() => {
+        const messageInterval = (window as any).setInterval(() => {
             messageIndex = (messageIndex + 1) % videoGenMessages.length;
             setLoadingMessage(videoGenMessages[messageIndex]);
         }, 8000);
@@ -243,15 +243,15 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 
             const poll = async () => {
                 if (!isLoading) {
-                    if (pollingRef.current) window.clearInterval(pollingRef.current);
+                    if (pollingRef.current) (window as any).clearInterval(pollingRef.current);
                     return;
                 }
                 
                 operation = await getVideosOperation({ operation: operation });
                 if (operation.done) {
                     setIsLoading(false);
-                    if (pollingRef.current) window.clearInterval(pollingRef.current);
-                    window.clearInterval(messageInterval);
+                    if (pollingRef.current) (window as any).clearInterval(pollingRef.current);
+                    (window as any).clearInterval(messageInterval);
                     const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
                     if (downloadLink) {
                         // Append API key for access
@@ -263,11 +263,11 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
                 }
             };
             
-            pollingRef.current = window.setInterval(poll, 10000);
+            pollingRef.current = (window as any).setInterval(poll, 10000);
 
         } catch (err: any) {
             setIsLoading(false);
-            window.clearInterval(messageInterval);
+            (window as any).clearInterval(messageInterval);
             if (err.message && err.message.includes("Requested entity was not found")) {
                 setError('API Key is invalid. Please select a valid key.');
                 setApiKeySelected(false);
@@ -297,8 +297,8 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
         <div>
             <p className="text-gray-300 mb-4">Generate a short video clip from a text prompt. This process can take several minutes.</p>
              <div className="flex flex-col sm:flex-row gap-2 mb-4">
-                <input type="text" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="e.g., A majestic eagle soaring over mountains" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
-                 <select value={aspectRatio} onChange={e => setAspectRatio(e.target.value as '16:9' | '9:16')} className="p-3 bg-gray-700 border border-gray-600 rounded-md outline-none">
+                <input type="text" value={prompt} onChange={e => setPrompt((e.target as any).value)} placeholder="e.g., A majestic eagle soaring over mountains" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
+                 <select value={aspectRatio} onChange={e => setAspectRatio((e.target as any).value as '16:9' | '9:16')} className="p-3 bg-gray-700 border border-gray-600 rounded-md outline-none">
                     <option value="16:9">Landscape (16:9)</option>
                     <option value="9:16">Portrait (9:16)</option>
                 </select>

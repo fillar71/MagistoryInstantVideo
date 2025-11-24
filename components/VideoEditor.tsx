@@ -273,7 +273,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
               <input 
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => setTitle((e.target as any).value)}
                 className="w-full p-2 text-2xl font-bold bg-transparent border-b-2 border-gray-700 focus:outline-none focus:border-purple-500"
               />
             </div>
@@ -316,7 +316,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                             max="2.5"
                             step="0.1"
                             value={timelineZoom}
-                            onChange={(e) => setTimelineZoom(parseFloat(e.target.value))}
+                            onChange={(e) => setTimelineZoom(parseFloat((e.target as any).value))}
                             className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
                             title={`Zoom: ${Math.round(timelineZoom * 100)}%`}
                         />

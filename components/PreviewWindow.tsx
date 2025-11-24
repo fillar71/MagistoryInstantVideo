@@ -96,7 +96,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     }, [effectiveTimings, style?.fontSize, style?.maxCaptionLines]);
 
     const handleScriptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const newText = e.target.value;
+        const newText = (e.target as any).value;
         setFullScript(newText);
         
         const parts = newText.split(/\n\n+/); // Split by double newline
@@ -153,12 +153,12 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     };
     
     const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = Math.max(1, parseFloat(e.target.value));
+        const val = Math.max(1, parseFloat((e.target as any).value));
         onUpdateDuration(segment.id, val);
     }
     
     const handleTransitionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        onUpdateTransition(segment.id, e.target.value as TransitionEffect);
+        onUpdateTransition(segment.id, (e.target as any).value as TransitionEffect);
     }
 
     const handleGenerateAllAudio = async () => {
@@ -184,7 +184,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                         const wavBlobUrl = createWavBlobUrl(base64Audio);
                         
                         // Create temporary audio to get duration
-                        const audio = new Audio(wavBlobUrl);
+                        const audio = new (window as any).Audio(wavBlobUrl);
                         await new Promise((resolve) => {
                             audio.onloadedmetadata = () => resolve(null);
                             audio.onerror = () => resolve(null); // Fail safe
@@ -228,15 +228,15 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     
     const handleTimeUpdate = () => {
         if (audioPlayerRef.current) {
-            setCurrentPlaybackTime(audioPlayerRef.current.currentTime);
+            setCurrentPlaybackTime((audioPlayerRef.current as any).currentTime);
         }
     };
 
     // Autoplay when new audio URL is set
     useEffect(() => {
         if (segment.audioUrl && audioPlayerRef.current && !isGeneratingAudio) {
-            audioPlayerRef.current.load();
-            audioPlayerRef.current.play().catch(() => {
+            (audioPlayerRef.current as any).load();
+            (audioPlayerRef.current as any).play().catch(() => {
                 // Auto-play rules might block this
             });
         }
@@ -411,18 +411,18 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                         <div className="grid grid-cols-2 gap-3">
                             <div>
                                 <label className="text-xs text-gray-400 block mb-1">Font</label>
-                                <select value={style.fontFamily} onChange={(e) => handleStyleChange('fontFamily', e.target.value)} className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm">
+                                <select value={style.fontFamily} onChange={(e) => handleStyleChange('fontFamily', (e.target as any).value)} className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm">
                                     {fonts.map(f => <option key={f.name} value={f.value}>{f.name}</option>)}
                                 </select>
                             </div>
                             <div>
                                 <label className="text-xs text-gray-400 block mb-1">Size</label>
-                                <input type="number" value={style.fontSize} onChange={(e) => handleStyleChange('fontSize', parseInt(e.target.value))} className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm" />
+                                <input type="number" value={style.fontSize} onChange={(e) => handleStyleChange('fontSize', parseInt((e.target as any).value))} className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm" />
                             </div>
                             <div className="col-span-2">
                                 <label className="text-xs text-gray-400 block mb-1">Highlight Color</label>
                                 <div className="flex items-center gap-2 bg-gray-700 p-1 rounded border border-gray-600">
-                                    <input type="color" value={style.color} onChange={(e) => handleStyleChange('color', e.target.value)} className="w-6 h-6 p-0 border-none rounded cursor-pointer bg-transparent" />
+                                    <input type="color" value={style.color} onChange={(e) => handleStyleChange('color', (e.target as any).value)} className="w-6 h-6 p-0 border-none rounded cursor-pointer bg-transparent" />
                                     <span className="text-xs text-gray-300">{style.color}</span>
                                 </div>
                             </div>
@@ -433,7 +433,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                                     min="1" 
                                     max="4" 
                                     value={style.maxCaptionLines || 2} 
-                                    onChange={(e) => handleStyleChange('maxCaptionLines', parseInt(e.target.value))} 
+                                    onChange={(e) => handleStyleChange('maxCaptionLines', parseInt((e.target as any).value))} 
                                     className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm" 
                                 />
                             </div>
@@ -441,7 +441,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                                 <label className="text-xs text-gray-400 block mb-1">Animation</label>
                                 <select 
                                     value={style.animation || 'none'} 
-                                    onChange={(e) => handleStyleChange('animation', e.target.value)} 
+                                    onChange={(e) => handleStyleChange('animation', (e.target as any).value)} 
                                     className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm"
                                 >
                                     <option value="none">None</option>

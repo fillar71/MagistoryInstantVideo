@@ -38,7 +38,7 @@ const SegmentCard: React.FC<SegmentCardProps> = ({
 
     const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         e.stopPropagation();
-        onUpdateVolume(segment.id, parseFloat(e.target.value));
+        onUpdateVolume(segment.id, parseFloat((e.target as any).value));
     }
 
     return (

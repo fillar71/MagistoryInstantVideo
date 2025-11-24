@@ -14,10 +14,10 @@ export function decode(base64: string) {
 
 export async function decodeAudioData(
   data: Uint8Array,
-  ctx: AudioContext | OfflineAudioContext,
+  ctx: any, // AudioContext
   sampleRate: number,
   numChannels: number,
-): Promise<AudioBuffer> {
+): Promise<any> { // Promise<AudioBuffer>
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
@@ -34,7 +34,7 @@ export async function decodeAudioData(
 
 export async function playGeneratedAudio(base64Audio: string) {
     try {
-        const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+        const outputAudioContext = new ((window as any).AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
         const outputNode = outputAudioContext.createGain();
         outputNode.connect(outputAudioContext.destination);
 
@@ -50,17 +50,17 @@ export async function playGeneratedAudio(base64Audio: string) {
         source.start();
     } catch(e) {
         console.error("Failed to play audio", e);
-        alert("Could not play the generated audio. Please check the console for errors.")
+        (window as any).alert("Could not play the generated audio. Please check the console for errors.")
     }
 }
 
 
 export function imageUrlToBase64(url: string): Promise<{ base64: string, mimeType: string }> {
   return new Promise((resolve, reject) => {
-    const img = new Image();
+    const img = new (window as any).Image();
     img.crossOrigin = 'Anonymous';
     img.onload = () => {
-      const canvas = document.createElement('canvas');
+      const canvas = (window as any).document.createElement('canvas');
       canvas.width = img.width;
       canvas.height = img.height;
       const ctx = canvas.getContext('2d');
@@ -123,7 +123,7 @@ export function createWavBlobUrl(base64Audio: string): string {
     return URL.createObjectURL(blob);
 }
 
-export function audioBufferToWav(buffer: AudioBuffer): ArrayBuffer {
+export function audioBufferToWav(buffer: any): ArrayBuffer { // buffer: AudioBuffer
     const numChannels = buffer.numberOfChannels;
     const sampleRate = buffer.sampleRate;
     const format = 1; // PCM

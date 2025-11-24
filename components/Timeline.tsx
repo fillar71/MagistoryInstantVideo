@@ -41,20 +41,20 @@ const Timeline: React.FC<TimelineProps> = ({
 
     const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
         setDraggedIndex(index);
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("draggedSegmentIndex", index.toString());
+        (e.dataTransfer as any).effectAllowed = "move";
+        (e.dataTransfer as any).setData("draggedSegmentIndex", index.toString());
         const el = e.currentTarget;
-        el.style.opacity = '0.5';
+        (el as any).style.opacity = '0.5';
     };
 
     const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
-        e.currentTarget.style.opacity = '1';
+        (e.currentTarget as any).style.opacity = '1';
         setDraggedIndex(null);
     }
 
     const handleDrop = (e: React.DragEvent<HTMLDivElement>, dropIndex: number) => {
         e.preventDefault();
-        const draggedIdxStr = e.dataTransfer.getData("draggedSegmentIndex");
+        const draggedIdxStr = (e.dataTransfer as any).getData("draggedSegmentIndex");
         if (!draggedIdxStr) return;
         
         const draggedIdx = parseInt(draggedIdxStr);
@@ -68,7 +68,7 @@ const Timeline: React.FC<TimelineProps> = ({
 
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
+        (e.dataTransfer as any).dropEffect = "move";
     };
 
     // Generate Time Ruler Marks

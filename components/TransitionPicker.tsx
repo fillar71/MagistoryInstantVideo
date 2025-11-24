@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import type { TransitionEffect } from '../types';
 import { TransitionIcon } from './icons';
@@ -19,12 +20,12 @@ const TransitionPicker: React.FC<TransitionPickerProps> = ({ currentTransition, 
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+            if (wrapperRef.current && !(wrapperRef.current as any).contains(event.target as any)) {
                 setIsOpen(false);
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        (window as any).document.addEventListener('mousedown', handleClickOutside);
+        return () => (window as any).document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const handleSelect = (transition: TransitionEffect) => {

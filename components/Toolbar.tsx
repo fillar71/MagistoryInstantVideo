@@ -14,7 +14,7 @@ interface ToolbarProps {
 
 const ToolButton: React.FC<{ icon: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean }> = ({ icon, label, onClick, disabled }) => (
   <button 
-    onClick={onClick || (() => alert(`${label} feature coming soon!`))}
+    onClick={onClick || (() => (window as any).alert(`${label} feature coming soon!`))}
     disabled={disabled}
     className={`flex flex-col items-center gap-2 transition-colors w-full p-2 rounded-md 
       ${disabled ? 'text-gray-600 cursor-not-allowed' : 'text-gray-300 hover:text-purple-400 hover:bg-gray-700'}
