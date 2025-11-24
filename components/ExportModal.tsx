@@ -3,9 +3,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Segment, TextOverlayStyle, WordTiming, MediaClip } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import { DownloadIcon } from './icons';
-import { generateSubtitleChunks, audioBufferToWav, decodeAudioData } from '../utils/media';
+import { generateSubtitleChunks, audioBufferToWav } from '../utils/media';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { toBlobURL } from '@ffmpeg/util';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -20,6 +20,42 @@ const RENDER_WIDTH = 1280;
 const RENDER_HEIGHT = 720;
 const FRAME_RATE = 30;
 const TRANSITION_DURATION_S = 0.7;
+
+// Helper to fetch Blob with progress tracking
+const fetchWithProgress = async (url: string, mimeType: string, onProgress: (percent: number) => void): Promise<string> => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to download ${url}: ${response.statusText}`);
+
+    const contentLength = response.headers.get('content-length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+    
+    // If no content-length, we can't track percent, but we can still fetch
+    if (!total) {
+        const blob = await response.blob();
+        onProgress(100);
+        return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+        const blob = await response.blob();
+        onProgress(100);
+        return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+    }
+
+    let receivedLength = 0;
+    const chunks = [];
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        receivedLength += value.length;
+        onProgress((receivedLength / total) * 100);
+    }
+
+    const blob = new Blob(chunks, { type: mimeType });
+    return URL.createObjectURL(blob);
+};
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segments }) => {
     const [status, setStatus] = useState<ExportStatus>('idle');
@@ -47,32 +83,48 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         const ffmpeg = ffmpegRef.current;
         if (!ffmpeg.loaded) {
             setStatus('loading_engine');
-            setStatusText('Downloading video engine (this happens once)...');
+            setStatusText('Downloading video engine (~25MB)...');
             try {
-                // Attach progress listener for encoding phase
-                ffmpeg.on('progress', ({ progress, time }) => {
-                    // progress is 0-1
-                    // Encoding phase is 75% to 100%
-                    const p = 75 + (progress * 25);
-                    if (p < 100) setProgress(p);
+                // Attach progress listener for the encoding phase later
+                ffmpeg.on('progress', ({ progress: p }) => {
+                    // FFmpeg reports 0-1. We map encoding phase to 80-100% of total progress
+                    if (status === 'encoding') {
+                         setProgress(80 + (p * 20));
+                    }
                 });
 
                 ffmpeg.on('log', ({ message }) => {
-                    console.log('FFmpeg:', message);
+                    console.log('FFmpeg Log:', message);
                 });
 
                 const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm';
+                
+                // Load JS (small) directly
+                const coreURL = await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript');
+                
+                // Load WASM (large) with progress tracking
+                const wasmURL = await fetchWithProgress(
+                    `${baseURL}/ffmpeg-core.wasm`, 
+                    'application/wasm', 
+                    (percent) => {
+                        // Engine download maps to 0-20% of global progress
+                        setProgress((percent / 100) * 20);
+                    }
+                );
+
                 await ffmpeg.load({
-                    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-                    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                    coreURL: coreURL,
+                    wasmURL: wasmURL,
                 });
             } catch (e: any) {
                 console.error("FFmpeg load error:", e);
                 const msg = e.message || "Unknown error";
-                let friendlyMsg = `Failed to load video encoder: ${msg}.`;
+                let friendlyMsg = `Failed to download or load the video engine. Error: ${msg}`;
                 
                 if (msg.includes("SharedArrayBuffer")) {
-                    friendlyMsg += " This browser environment does not support secure memory sharing required by the engine. Please try using a modern desktop browser or a secure context (HTTPS).";
+                    friendlyMsg = "Your browser does not support SharedArrayBuffer, which is required for the video engine. Please try using a recent version of Chrome/Firefox on Desktop, or ensure you are serving this site with proper security headers (Cross-Origin-Opener-Policy: same-origin).";
+                } else if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+                    friendlyMsg = "Network error: Failed to download the video engine components. Please check your internet connection. If using Termux or a restricted network, ensure access to unpkg.com is allowed.";
                 }
                 
                 setError(friendlyMsg);
@@ -87,6 +139,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         onClose();
     }
     
+    // ... drawKaraokeText function remains the same ...
     const drawKaraokeText = (
         ctx: CanvasRenderingContext2D, 
         segment: Segment, 
@@ -243,7 +296,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
             setStatus('rendering_audio');
             setStatusText('Mixing audio tracks...');
-            setProgress(5);
+            // Progress: 20% -> 30%
+            setProgress(20);
 
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
             const OfflineContextClass = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
@@ -280,7 +334,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             const renderedBuffer = await offlineCtx.startRendering();
             const wavBytes = audioBufferToWav(renderedBuffer);
             await ffmpeg.writeFile('audio.wav', new Uint8Array(wavBytes));
-            setProgress(15);
+            setProgress(30);
 
 
             setStatus('rendering_video');
@@ -409,8 +463,8 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                     await ffmpeg.writeFile(frameName, new Uint8Array(buffer));
                 }
 
-                // Update Progress (20% to 75%)
-                const percent = 20 + ((i / totalFrames) * 55); 
+                // Video rendering Progress: 30% -> 80%
+                const percent = 30 + ((i / totalFrames) * 50); 
                 setProgress(percent);
                 setStatusText(`Rendering frame ${i}/${totalFrames}...`);
 
@@ -488,7 +542,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         </div>
                         <p className="text-xs text-gray-500">{Math.round(progress)}% Complete</p>
                         {status === 'loading_engine' && (
-                            <p className="text-[10px] text-gray-600 mt-2">Initial download ~25MB. Please wait...</p>
+                            <p className="text-[10px] text-gray-600 mt-2">
+                                Downloading export engine (~25MB). This happens once and is cached for next time.
+                            </p>
                         )}
                     </div>
                 )}
@@ -500,7 +556,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         <a 
                             href={videoUrl} 
                             download={`${title.replace(/ /g, '_')}.mp4`}
-                            className="w-full py-3 bg-green-600 hover:bg-green-700 rounded-md text-white font-semibold flex items-center justify-center gap-2"
+                            className="w-full py-3 bg-green-600 hover:bg-green-700 rounded-md text-white font-semibold flex items-center justify-center gap-2 shadow-lg transform hover:scale-105 transition-all"
                         >
                             <DownloadIcon /> Download MP4
                         </a>
@@ -510,7 +566,9 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 {status === 'error' && (
                     <div className="text-center">
                         <p className="text-xl font-semibold text-red-400 mb-4">Export Failed</p>
-                        <p className="text-gray-300 bg-gray-700 p-3 rounded-md mb-4 text-sm text-left overflow-auto max-h-32">{error}</p>
+                        <div className="bg-gray-900/50 p-4 rounded-md mb-4 text-left border border-red-900/50">
+                            <p className="text-red-300 text-sm">{error}</p>
+                        </div>
                          <button onClick={handleStartExport} className="w-full py-3 bg-purple-600 hover:bg-purple-700 rounded-md text-white font-semibold">
                             Try Again
                         </button>
