@@ -1,31 +1,29 @@
-# Gunakan image Node.js versi 18 (Slim version agar lebih ringan)
+# Gunakan image Node.js yang ringan
 FROM node:18-slim
 
-# Install FFmpeg (Wajib untuk rendering video)
-# Kita membersihkan cache apt setelah install untuk mengurangi ukuran image
+# Install FFmpeg DAN Font (Wajib untuk drawtext/subtitle)
+# fonts-dejavu dibutuhkan agar filter drawtext FFmpeg tidak crash
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
+    apt-get install -y ffmpeg fonts-dejavu && \
     rm -rf /var/lib/apt/lists/*
 
-# Set working directory di dalam container
+# Set working directory
 WORKDIR /app
 
-# Copy package.json dan package-lock.json terlebih dahulu
-# Ini memanfaatkan fitur caching Docker layer agar npm install tidak dijalankan ulang jika tidak ada perubahan dependency
+# Copy package files untuk install dependencies
 COPY package*.json ./
 
-# Install dependencies project
+# Install dependencies
 RUN npm install
 
-# Copy seluruh source code backend ke dalam container
+# Copy source code backend
 COPY . .
 
-# Build code TypeScript menjadi JavaScript (output ke folder dist/)
+# Build TypeScript code
 RUN npm run build
 
-# Expose port 3001 (Railway akan meng-override ini lewat env variable PORT, tapi ini good practice)
+# Expose port (Railway akan override, tapi 3001 default)
 EXPOSE 3001
 
-# Jalankan aplikasi langsung menggunakan node
-# CMD ["node", "dist/index.js"] lebih stabil daripada "npm start" untuk menangani sinyal shutdown dari Railway
+# Jalankan server
 CMD ["node", "dist/index.js"]
