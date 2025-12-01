@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { VideoScript } from './types';
 import PromptInput from './components/PromptInput';
@@ -18,9 +19,10 @@ const App: React.FC = () => {
     try {
       const script = await generateVideoScript(topic, duration, aspectRatio);
       setVideoScript(script);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error generating script:", err);
-      setError("Failed to generate video script. The AI might be busy, please try again.");
+      // Display the specific error message to the user (e.g., "Quota exceeded", "API Key invalid")
+      setError(err.message || "Failed to generate video script. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -93,10 +95,12 @@ const App: React.FC = () => {
 
         {error && !isLoading && (
             <div className="flex flex-col items-center justify-center h-64 text-center">
-                <p className="text-xl text-red-400">{error}</p>
+                <p className="text-xl text-red-400 mb-4 bg-red-900/20 p-4 rounded-lg border border-red-500/30 max-w-2xl">
+                    Error: {error}
+                </p>
                 <button
                     onClick={() => setError(null)}
-                    className="mt-4 px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-md text-white font-semibold transition-colors duration-200"
+                    className="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-md text-white font-semibold transition-colors duration-200"
                 >
                     Try Again
                 </button>

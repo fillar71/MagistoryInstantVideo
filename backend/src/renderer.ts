@@ -5,8 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 
-// Using process.cwd() ensures we look for temp folder relative to where the app runs (root of container)
-const TEMP_DIR = path.join(process.cwd(), 'temp');
+// Using process.cwd() ensures we look for temp folder relative to where the app runs
+const TEMP_DIR = path.join((process as any).cwd(), 'temp');
 
 interface RenderJob {
     title: string;
@@ -34,7 +34,6 @@ async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | '
         const writer = fs.createWriteStream(filePath);
         response.data.pipe(writer);
         await new Promise<void>((resolve, reject) => {
-            // Fix TS error: explicit void return for resolve
             writer.on('finish', () => resolve());
             writer.on('error', reject);
         });
@@ -60,6 +59,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
         const segmentFiles: string[] = [];
 
         // 1. Process Segments
+        console.log(`Processing ${job.segments.length} segments...`);
         for (let i = 0; i < job.segments.length; i++) {
             const seg = job.segments[i];
             const media = seg.media[0];
@@ -84,16 +84,22 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 if (audioPath) {
                     segCmd.input(audioPath);
                 } else {
+                    // Create silent audio track if none exists
                     segCmd.input('anullsrc=channel_layout=stereo:sample_rate=44100').inputFormat('lavfi');
                 }
 
                 const filters = [];
+                // Scale and pad logic
                 filters.push(`[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1[vscaled]`);
                 
                 let videoOut = 'vscaled';
 
+                // Subtitles
                 if (seg.narration_text) {
                     const safeText = seg.narration_text.replace(/:/g, '\\:').replace(/'/g, '').substring(0, 100); 
+                    // Basic drawtext filter. Note: fontfile is usually required for drawtext in docker if default font not found.
+                    // We assume basic ffmpeg install has a default, otherwise we might need to specify a font path.
+                    // Using a safe fallback if fontconfig is present.
                     filters.push(`[${videoOut}]drawtext=text='${safeText}':fontcolor=white:fontsize=36:box=1:boxcolor=black@0.5:boxborderw=5:x=(w-text_w)/2:y=h-80[vtext]`);
                     videoOut = 'vtext';
                 }
@@ -102,7 +108,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 
                 segCmd.outputOptions([
                     '-map', `[${videoOut}]`,
-                    '-map', audioPath ? '1:a' : '1:a',
+                    '-map', audioPath ? '1:a' : '1:a', // Use the audio input (index 1)
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
                     '-c:a', 'aac',
@@ -120,6 +126,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
         }
 
         // 2. Concat Segments
+        console.log("Concatenating segments...");
         const concatListPath = path.join(jobDir, 'concat_list.txt');
         const concatFileContent = segmentFiles.map(f => `file '${f}'`).join('\n');
         fs.writeFileSync(concatListPath, concatFileContent);
@@ -137,6 +144,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
         });
 
         // 3. Mix Background Audio
+        console.log("Mixing final audio...");
         const finalCmd = ffmpeg().input(mergedVisualsPath);
         let inputCount = 1;
         const audioMixInputs = ['[0:a]'];
@@ -179,6 +187,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 .on('error', (err) => reject(new Error(`Error final render: ${err.message}`)));
         });
         
+        console.log("Render finished successfully.");
         return outputPath;
 
     } catch (e) {

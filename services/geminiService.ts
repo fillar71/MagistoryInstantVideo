@@ -3,8 +3,15 @@ import { GoogleGenAI, Type, Modality } from "@google/genai";
 import type { VideoScript, Segment, TransitionEffect, AudioClip } from '../types';
 import { searchPixabayImages, searchPixabayVideos, searchPixabayAudio } from "./pixabayService";
 
+// Helper to clean JSON string from Markdown code blocks often returned by LLMs
+function cleanJsonText(text: string): string {
+  if (!text) return "";
+  // Remove ```json at start and ``` at end, and trim whitespace
+  return text.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
+}
+
 if (!process.env.API_KEY) {
-    console.warn("API_KEY environment variable not found. Using a placeholder.");
+    console.warn("API_KEY environment variable not found. Please check your .env or Vercel settings.");
 }
 
 const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -75,11 +82,26 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
         }
     });
 
-    const parsedResponse: { 
+    const rawText = response.text;
+    if (!rawText) {
+        throw new Error("Received empty response from AI. Please try again.");
+    }
+
+    // Clean text before parsing to handle potential Markdown formatting
+    const cleanedText = cleanJsonText(rawText);
+    
+    let parsedResponse: { 
         title: string; 
         background_music_keywords: string; 
         segments: (Omit<Segment, 'id' | 'media' | 'mediaType' | 'mediaUrl'> & { sfx_keywords?: string })[] 
-    } = JSON.parse(response.text);
+    };
+
+    try {
+        parsedResponse = JSON.parse(cleanedText);
+    } catch (parseError) {
+        console.error("JSON Parse Error:", parseError, "Raw Text:", cleanedText);
+        throw new Error("Failed to parse AI response. The model generated invalid JSON.");
+    }
 
     // Fetch initial media for all segments from Pixabay
     const segmentsWithMediaPromises = parsedResponse.segments.map(async (segment, index) => {
@@ -217,9 +239,10 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
     };
 
     return processedScript;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error calling Gemini API:', error);
-    throw new Error('Failed to fetch video script from Gemini API.');
+    // Propagate the specific error message
+    throw new Error(error.message || 'Failed to fetch video script from Gemini API.');
   }
 }
 
@@ -248,7 +271,8 @@ export async function suggestMediaKeywords(narrationText: string, videoContext?:
     return response.text.trim().replace(/"/g, '');
   } catch (error) {
     console.error('Error calling Gemini API for keyword suggestion:', error);
-    throw new Error('Failed to suggest media keywords from Gemini API.');
+    // Don't throw here, just return empty so UI doesn't break
+    return "";
   }
 }
 
