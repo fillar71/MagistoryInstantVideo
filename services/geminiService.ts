@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import type { VideoScript, Segment, TransitionEffect, AudioClip } from '../types';
 import { searchPixabayImages, searchPixabayVideos, searchPixabayAudio } from "./pixabayService";
@@ -10,11 +9,13 @@ function cleanJsonText(text: string): string {
   return text.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
 }
 
-if (!process.env.API_KEY) {
-    console.warn("API_KEY environment variable not found. Please check your .env or Vercel settings.");
-}
-
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAI = () => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error("API Key is missing. Please add 'API_KEY' to your .env file (local) or Vercel Environment Variables.");
+    }
+    return new GoogleGenAI({ apiKey });
+};
 
 export async function generateVideoScript(topic: string, requestedDuration: string, aspectRatio: 'landscape' | 'portrait' = 'landscape'): Promise<VideoScript> {
   const ai = getAI();
