@@ -452,13 +452,18 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
         {isAIToolsOpen && activeSegment && (
             <AIToolsModal
                 isOpen={isAIToolsOpen}
-                onClose={() => setIsAIToolsOpen(false)}
+                onClose={() => {
+                    setIsAIToolsOpen(false);
+                    setActiveClipIdForTools(null);
+                }}
                 segment={activeSegment}
                 activeClipId={activeClipIdForTools || activeSegment.media[0].id}
                 onUpdateMedia={(newUrl) => {
-                    if (activeClipIdForTools) {
-                        handleUpdateSegmentMedia(activeSegment.id, activeClipIdForTools, newUrl, 'image'); 
-                    }
+                    // Logic to figure out which clip to update. 
+                    // activeClipIdForTools is explicit from UI click.
+                    // Fallback to media[0] if null (Toolbar click)
+                    const targetId = activeClipIdForTools || activeSegment.media[0].id;
+                    handleUpdateSegmentMedia(activeSegment.id, targetId, newUrl, 'image'); 
                 }}
                 onUpdateAudio={(newUrl, duration) => handleUpdateSegmentAudio(activeSegment.id, newUrl, duration)}
             />

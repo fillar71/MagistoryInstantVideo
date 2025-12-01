@@ -1,9 +1,9 @@
 
-
 import React, { useMemo, useRef, useState } from 'react';
 import type { Segment, TransitionEffect, AudioClip } from '../types';
 import SegmentCard from './SegmentCard';
 import TransitionPicker from './TransitionPicker';
+import Waveform from './Waveform';
 import { MusicIcon, VolumeXIcon, EditIcon, TrashIcon } from './icons';
 
 interface TimelineProps {
@@ -135,30 +135,43 @@ const Timeline: React.FC<TimelineProps> = ({
     const coverImage = segments.length > 0 && segments[0].media.length > 0 ? segments[0].media[0].url : null;
 
     const renderAudioClip = (clip: AudioClip) => {
+        const width = Math.max(clip.duration * pixelsPerSecond, 20);
         return (
             <div
                 key={clip.id}
                 draggable
                 onDragStart={(e) => handleAudioDragStart(e, clip.id)}
-                className={`absolute h-full rounded-md border text-xs flex flex-col justify-center px-2 cursor-pointer overflow-hidden group transition-colors shadow-sm
+                className={`absolute h-full rounded-md border text-xs flex flex-col justify-center cursor-pointer overflow-hidden group transition-colors shadow-sm
                     ${clip.type === 'music' 
-                        ? 'bg-blue-900/80 border-blue-500 hover:bg-blue-800' 
-                        : 'bg-orange-900/80 border-orange-500 hover:bg-orange-800'
+                        ? 'bg-blue-900/40 border-blue-500 hover:bg-blue-800/60' 
+                        : 'bg-orange-900/40 border-orange-500 hover:bg-orange-800/60'
                     }
                     ${draggedAudioId === clip.id ? 'opacity-50' : 'opacity-100'}
                 `}
                 style={{
                     left: `${clip.startTime * pixelsPerSecond}px`,
-                    width: `${Math.max(clip.duration * pixelsPerSecond, 20)}px`, // Min width for visibility
+                    width: `${width}px`,
                     top: '2px',
                     bottom: '2px',
                     zIndex: 10
                 }}
                 title={`${clip.name} (${clip.duration.toFixed(1)}s)`}
             >
-                <div className="font-bold truncate text-white">{clip.name}</div>
+                {/* Waveform Background */}
+                <div className="absolute inset-0 opacity-60">
+                    <Waveform 
+                        width={width} 
+                        height={40} 
+                        color={clip.type === 'music' ? '#60a5fa' : '#fb923c'} // Blue-400 or Orange-400
+                        seedId={clip.id}
+                        type={clip.type}
+                    />
+                </div>
+
+                <div className="relative px-2 font-bold truncate text-white drop-shadow-md z-10">{clip.name}</div>
+                
                 {/* Controls overlay */}
-                <div className="absolute inset-0 bg-black/60 hidden group-hover:flex items-center justify-center gap-2 backdrop-blur-sm px-1">
+                <div className="absolute inset-0 bg-black/60 hidden group-hover:flex items-center justify-center gap-2 backdrop-blur-sm px-1 z-20">
                     <button 
                          onClick={(e) => { e.stopPropagation(); onDeleteAudioTrack(clip.id); }}
                          className="p-1 bg-red-600 rounded-full hover:bg-red-500 text-white"
@@ -320,17 +333,24 @@ const Timeline: React.FC<TimelineProps> = ({
                                 <div key={`narration-${segment.id}`} style={{ width }} className="flex-shrink-0 pr-[2px] h-full border-r border-gray-800/50">
                                     {segment.audioUrl ? (
                                         <div 
-                                            className="h-full bg-purple-900/80 border border-purple-500 rounded-md flex items-center px-2 cursor-pointer hover:bg-purple-800 overflow-hidden relative"
+                                            className="h-full bg-purple-900/40 border border-purple-500 rounded-md flex items-center px-2 cursor-pointer hover:bg-purple-800/60 overflow-hidden relative"
                                             onClick={() => setActiveSegmentId(segment.id)}
                                             title="AI Narration"
                                         >
-                                            <span className="text-[9px] text-purple-100 truncate relative z-10">
+                                            {/* Waveform Visualization */}
+                                            <div className="absolute inset-0 opacity-50">
+                                                <Waveform 
+                                                    width={width} 
+                                                    height={32} 
+                                                    color="#a855f7" // Purple-500
+                                                    seedId={segment.id}
+                                                    type="narration"
+                                                />
+                                            </div>
+                                            
+                                            <span className="text-[9px] text-purple-100 truncate relative z-10 font-medium drop-shadow-md">
                                                 {isGenerated ? 'AI Voice' : 'Clip Audio'}
                                             </span>
-                                            {/* Fake Waveform */}
-                                            <div className="absolute inset-0 flex items-center justify-center opacity-30 gap-0.5">
-                                                {[...Array(Math.floor(width/6))].map((_,i) => <div key={i} className="w-0.5 bg-white h-2 rounded-full"></div>)}
-                                            </div>
                                         </div>
                                     ) : (
                                         <div className="h-full"></div>

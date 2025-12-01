@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import type { Segment } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -23,7 +24,7 @@ interface AIToolsModalProps {
 type Tab = 'generate-image' | 'edit-image' | 'generate-video' | 'tts';
 
 const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('generate-image');
+  const [activeTab, setActiveTab] = useState<Tab>('edit-image');
 
   // Find the active clip object
   const activeClip = segment.media.find(c => c.id === activeClipId) || segment.media[0];
@@ -40,14 +41,14 @@ const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, a
         
         <div className="border-b border-gray-700 mb-4">
           <nav className="flex gap-4">
+            <TabButton name="Edit/Enhance Image" tab="edit-image" activeTab={activeTab} setActiveTab={setActiveTab} />
             <TabButton name="Generate Image" tab="generate-image" activeTab={activeTab} setActiveTab={setActiveTab} />
-            <TabButton name="Edit Image" tab="edit-image" activeTab={activeTab} setActiveTab={setActiveTab} />
             <TabButton name="Generate Video" tab="generate-video" activeTab={activeTab} setActiveTab={setActiveTab} />
             <TabButton name="Text to Speech" tab="tts" activeTab={activeTab} setActiveTab={setActiveTab} />
           </nav>
         </div>
 
-        <div className="flex-grow overflow-y-auto">
+        <div className="flex-grow overflow-y-auto custom-scrollbar">
           {activeTab === 'generate-image' && <GenerateImageTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'edit-image' && <EditImageTab mediaUrl={activeClip.url} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'generate-video' && <GenerateVideoTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
@@ -97,18 +98,34 @@ const GenerateImageTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
         onClose();
     }
 
+    const randomPrompts = [
+        "A cyberpunk street scene with neon lights and rain",
+        "A peaceful zen garden with cherry blossoms",
+        "An abstract geometric pattern with gold and black",
+        "A cute robot holding a flower in a field"
+    ];
+    
+    const handleSurpriseMe = () => {
+        setPrompt(randomPrompts[Math.floor(Math.random() * randomPrompts.length)]);
+    }
+
     return (
         <div>
-            <p className="text-gray-300 mb-4">Create a new image from a text description. The result will be a 16:9 image.</p>
+            <p className="text-gray-300 mb-4">Create a new image from scratch using a text description.</p>
             <div className="flex gap-2 mb-4">
                 <input type="text" value={prompt} onChange={e => setPrompt((e.target as any).value)} placeholder="e.g., A futuristic city skyline at sunset" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
                 <button onClick={handleGenerate} disabled={isLoading || !prompt} className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center gap-2">
                     {isLoading && <LoadingSpinner />} Generate
                 </button>
             </div>
+            <div className="flex justify-end mb-4">
+                <button onClick={handleSurpriseMe} className="text-xs text-purple-400 hover:text-purple-300 underline">Surprise Me</button>
+            </div>
+
              {error && <p className="text-red-400 text-center mb-2">{error}</p>}
-            <div className="w-full aspect-video bg-gray-900 rounded-md flex items-center justify-center">
+            <div className="w-full aspect-video bg-gray-900 rounded-md flex items-center justify-center border border-gray-700">
                 {isLoading && <LoadingSpinner />}
+                {!isLoading && !result && <p className="text-gray-600 text-sm">Image preview will appear here</p>}
                 {result && <img src={result} className="w-full h-full object-contain" />}
             </div>
             {result && (
@@ -128,6 +145,14 @@ const EditImageTab: React.FC<{ mediaUrl: string; onUpdateMedia: (url: string) =>
     const [error, setError] = useState('');
     const [originalImage, setOriginalImage] = useState(mediaUrl);
     
+    const quickActions = [
+        { label: "Auto Enhance", prompt: "Enhance image resolution, sharpness, lighting, and color balance to look professional and crisp." },
+        { label: "Cinematic Look", prompt: "Apply a cinematic color grading, dramatic lighting, and shallow depth of field." },
+        { label: "Cyberpunk", prompt: "Add neon lighting, futuristic elements, and a cyberpunk aesthetic." },
+        { label: "Watercolor", prompt: "Convert this image into a beautiful watercolor painting style." },
+        { label: "Black & White", prompt: "Convert to high contrast artistic black and white photography." },
+    ];
+
     const handleEdit = async () => {
         if (!prompt) return;
         setIsLoading(true);
@@ -153,23 +178,40 @@ const EditImageTab: React.FC<{ mediaUrl: string; onUpdateMedia: (url: string) =>
 
     return (
          <div>
-            <p className="text-gray-300 mb-4">Modify the selected image using a text command.</p>
+            <p className="text-gray-300 mb-4">Automatically enhance or modify the selected image using AI.</p>
+            
+            <div className="mb-4">
+                <label className="text-xs text-gray-400 font-bold uppercase mb-2 block">Quick Actions</label>
+                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                    {quickActions.map(qa => (
+                        <button 
+                            key={qa.label}
+                            onClick={() => setPrompt(qa.prompt)}
+                            className="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded-full text-xs text-gray-300 border border-gray-600 hover:border-purple-400 whitespace-nowrap transition-colors"
+                        >
+                            {qa.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             <div className="flex gap-2 mb-4">
                 <input type="text" value={prompt} onChange={e => setPrompt((e.target as any).value)} placeholder="e.g., Add a retro filter, make it black and white" className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
                 <button onClick={handleEdit} disabled={isLoading || !prompt} className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center gap-2">
-                    {isLoading && <LoadingSpinner />} Edit
+                    {isLoading && <LoadingSpinner />} Apply
                 </button>
             </div>
             {error && <p className="text-red-400 text-center mb-2">{error}</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div className="w-full aspect-video bg-gray-900 rounded-md flex flex-col items-center justify-center">
+                 <div className="w-full aspect-video bg-gray-900 rounded-md flex flex-col items-center justify-center border border-gray-700">
                     <p className="text-sm font-semibold text-gray-400 mb-1">Original</p>
                     <img src={originalImage} className="w-full h-full object-contain" />
                  </div>
-                 <div className="w-full aspect-video bg-gray-900 rounded-md flex flex-col items-center justify-center">
+                 <div className="w-full aspect-video bg-gray-900 rounded-md flex flex-col items-center justify-center border border-gray-700">
                     <p className="text-sm font-semibold text-gray-400 mb-1">Result</p>
                     <div className="w-full h-full flex items-center justify-center">
                        {isLoading && <LoadingSpinner />}
+                       {!isLoading && !result && <p className="text-gray-600 text-sm">Enhanced version will appear here</p>}
                        {result && <img src={result} className="w-full h-full object-contain" />}
                     </div>
                  </div>
@@ -307,15 +349,21 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
                 </button>
             </div>
             {error && <p className="text-red-400 text-center mb-2">{error}</p>}
-            <div className="w-full aspect-video bg-gray-900 rounded-md flex items-center justify-center">
+            <div className="w-full aspect-video bg-gray-900 rounded-md flex items-center justify-center border border-gray-700">
                 {isLoading && (
                     <div className="text-center">
                         <LoadingSpinner />
                         <p className="mt-4 text-lg text-gray-300">{loadingMessage}</p>
                     </div>
                 )}
+                {!isLoading && !result && <p className="text-gray-600 text-sm">Video preview will appear here</p>}
                 {result && <video src={result} controls autoPlay className="w-full h-full object-contain" />}
             </div>
+            {result && (
+                 <button onClick={() => { onUpdateMedia(result); onClose(); }} className="mt-4 w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700">
+                    Use This Video
+                </button>
+            )}
         </div>
     );
 };
@@ -350,7 +398,7 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string,
     return (
          <div>
             <p className="text-gray-300 mb-2">Generate a voiceover for the narration text.</p>
-            <div className="bg-gray-700 p-4 rounded-md mb-4">
+            <div className="bg-gray-700 p-4 rounded-md mb-4 border border-gray-600">
                 <p className="italic text-gray-300">"{segment.narration_text}"</p>
             </div>
             <button onClick={handleGenerate} disabled={isLoading || !segment.narration_text} className="w-full px-6 py-3 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center justify-center gap-2">

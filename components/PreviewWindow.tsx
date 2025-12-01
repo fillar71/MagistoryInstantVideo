@@ -163,6 +163,44 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         onUpdateTransition(segment.id, (e.target as any).value as TransitionEffect);
     }
 
+    const handleGenerateCurrentAudio = async () => {
+        if (!segment.narration_text || segment.narration_text.trim().length === 0) return;
+        
+        setIsGeneratingAudio(true);
+        setGenerationProgress('Generating voice...');
+        setAudioError('');
+        
+        try {
+            const base64Audio = await generateSpeechFromText(segment.narration_text);
+            const wavBlobUrl = createWavBlobUrl(base64Audio);
+            
+            // Create temporary audio to get duration
+            const audio = new (window as any).Audio(wavBlobUrl);
+            await new Promise((resolve) => {
+                audio.onloadedmetadata = () => resolve(null);
+                audio.onerror = () => resolve(null); 
+            });
+            
+            const duration = audio.duration && isFinite(audio.duration) ? Math.ceil(audio.duration) : segment.duration;
+            const timings = estimateWordTimings(segment.narration_text, duration);
+            
+            onUpdateAudio(segment.id, wavBlobUrl, duration);
+            onUpdateWordTimings(segment.id, timings);
+            
+            // Update segment duration if audio is longer
+            if (duration > segment.duration) {
+                onUpdateDuration(segment.id, duration);
+            }
+            
+        } catch (err) {
+            console.error('Failed to generate audio for current segment:', err);
+            setAudioError('Failed to generate audio.');
+        } finally {
+            setIsGeneratingAudio(false);
+            setGenerationProgress('');
+        }
+    };
+
     const handleGenerateAllAudio = async () => {
         setIsGeneratingAudio(true);
         setGenerationProgress('Initializing...');
@@ -582,11 +620,20 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                     
                     <div className="flex gap-2 flex-col">
                         <button 
+                            onClick={handleGenerateCurrentAudio}
+                            disabled={isGeneratingAudio || !segment.narration_text}
+                            className="w-full px-3 py-3 bg-indigo-600 text-white text-sm font-semibold rounded hover:bg-indigo-700 disabled:bg-gray-600 flex items-center justify-center gap-2 transition-colors shadow-lg"
+                        >
+                             {isGeneratingAudio && generationProgress.includes('voice') ? <LoadingSpinner /> : <MusicIcon className="w-4 h-4" />}
+                             Generate Voice for This Segment
+                        </button>
+
+                        <button 
                             onClick={handleGenerateAllAudio} 
                             disabled={isGeneratingAudio}
                             className="w-full px-3 py-3 bg-purple-600 text-white text-sm font-semibold rounded hover:bg-purple-700 disabled:bg-gray-600 flex items-center justify-center gap-2 transition-colors shadow-lg"
                         >
-                            {isGeneratingAudio ? <LoadingSpinner /> : <MusicIcon className="w-4 h-4" />}
+                            {isGeneratingAudio && !generationProgress.includes('voice') ? <LoadingSpinner /> : <MusicIcon className="w-4 h-4" />}
                             Generate Voice for ALL Segments
                         </button>
                         
