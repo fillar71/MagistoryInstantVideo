@@ -8,18 +8,22 @@ interface ExportModalProps {
   onClose: () => void;
   title: string;
   segments: Segment[];
-  audioTracks?: AudioClip[]; // Make sure to pass global tracks if your App supports them
+  audioTracks?: AudioClip[]; 
 }
 
 type ExportStatus = 'idle' | 'preparing' | 'sending' | 'rendering' | 'complete' | 'error';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
+// Default from env, but can be overridden by user in UI
+const DEFAULT_BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segments, audioTracks = [] }) => {
     const [status, setStatus] = useState<ExportStatus>('idle');
     const [statusText, setStatusText] = useState('');
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
     const [error, setError] = useState('');
+    
+    // Allow user to edit the URL if connection fails
+    const [currentBackendUrl, setCurrentBackendUrl] = useState(DEFAULT_BACKEND_URL);
 
     // Helper to convert blob URLs to Base64 strings so the backend can read them
     const convertBlobUrlToBase64 = async (blobUrl: string): Promise<string> => {
@@ -79,13 +83,16 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         setError('');
         setVideoUrl(null);
 
+        // Remove trailing slash if present
+        const sanitizedUrl = currentBackendUrl.replace(/\/$/, '');
+
         try {
             const payload = await preparePayload();
 
             setStatus('sending');
             setStatusText("Uploading data to render engine...");
 
-            const response = await fetch(`${BACKEND_URL}/render`, {
+            const response = await fetch(`${sanitizedUrl}/render`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -93,9 +100,21 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 body: JSON.stringify(payload),
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Render server failed');
+            // Check content type to distinguish JSON error from HTML 404/500 page
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Render server failed');
+                }
+            } else {
+                 // If not JSON (likely HTML error page from Vercel/Railway/Express default)
+                 const text = await response.text();
+                 if (!response.ok) {
+                     throw new Error(`Server Error (${response.status}): ${response.statusText}. Check URL.`);
+                 }
+                 // If 200 OK but not JSON, that's weird
+                 throw new Error("Received invalid response format from server.");
             }
 
             setStatus('rendering');
@@ -132,11 +151,18 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
                 {status === 'idle' && (
                     <div className="text-center space-y-4">
-                         <div className="bg-purple-900/20 border border-purple-500/30 p-4 rounded-md">
-                            <p className="text-gray-200">
-                                Rendering will be performed on the <b>Cloud Server</b>. 
-                                This ensures high performance and doesn't freeze your device.
+                         <div className="bg-purple-900/20 border border-purple-500/30 p-4 rounded-md text-left">
+                            <p className="text-gray-200 mb-2">
+                                Rendering will be performed on the <b>Cloud Server</b>.
                             </p>
+                            <label className="text-xs text-gray-400 font-bold block mb-1">Render Server URL</label>
+                            <input 
+                                type="text" 
+                                value={currentBackendUrl}
+                                onChange={(e) => setCurrentBackendUrl(e.target.value)}
+                                className="w-full bg-gray-900 border border-gray-600 rounded p-2 text-sm text-gray-300 focus:border-purple-500 outline-none"
+                                placeholder="https://your-project.up.railway.app"
+                            />
                         </div>
                         <button 
                             onClick={handleStartExport} 
@@ -174,9 +200,22 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                     <div className="text-center">
                         <div className="bg-red-900/20 p-4 rounded-md mb-6 border border-red-900/50">
                             <h3 className="text-red-400 font-bold mb-1">Export Failed</h3>
-                            <p className="text-red-300 text-sm">{error}</p>
+                            <p className="text-red-300 text-sm mb-4">{error}</p>
+                            
+                            <div className="text-left">
+                                <label className="text-xs text-red-300 font-bold block mb-1">Verify Server URL:</label>
+                                <input 
+                                    type="text" 
+                                    value={currentBackendUrl}
+                                    onChange={(e) => setCurrentBackendUrl(e.target.value)}
+                                    className="w-full bg-gray-900 border border-red-500/50 rounded p-2 text-sm text-gray-300 focus:border-red-500 outline-none"
+                                />
+                                <p className="text-[10px] text-gray-400 mt-1">
+                                    Check Railway Dashboard for the correct "Public Domain" (e.g., https://xxx.up.railway.app)
+                                </p>
+                            </div>
                         </div>
-                        <button onClick={() => setStatus('idle')} className="w-full py-3 bg-gray-700 hover:bg-gray-600 rounded-md text-white font-semibold">
+                        <button onClick={handleStartExport} className="w-full py-3 bg-gray-700 hover:bg-gray-600 rounded-md text-white font-semibold">
                             Try Again
                         </button>
                     </div>
