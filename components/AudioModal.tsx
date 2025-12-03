@@ -1,5 +1,4 @@
 
-
 import React, { useRef, useState, useEffect } from 'react';
 import type { Segment } from '../types';
 import { MusicIcon, MagicWandIcon, ExportIcon } from './icons';
@@ -33,6 +32,11 @@ const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpd
   const [selectedTarget, setSelectedTarget] = useState<'segment' | 'music' | 'sfx'>(targetTrackType || 'segment');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const quickCategories = [
+    "Cinematic", "Upbeat", "Corporate", "Ambient", 
+    "Epic", "Lo-fi", "Acoustic", "Nature", "Electronic"
+  ];
 
   // Perform initial search if we have a term and no results yet
   useEffect(() => {
@@ -112,7 +116,7 @@ const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpd
   };
 
   const handleUploadClick = () => {
-    (fileInputRef.current as any)?.click();
+    fileInputRef.current?.click();
   };
 
   const handleRemoveAudio = () => {
@@ -227,6 +231,19 @@ const AudioModal: React.FC<AudioModalProps> = ({ isOpen, onClose, segment, onUpd
                                 <MagicWandIcon className="w-4 h-4" />
                                 <span className="hidden sm:inline">Magic Match</span>
                             </button>
+                        </div>
+                        
+                        {/* Quick Categories */}
+                        <div className="flex flex-wrap gap-2 mb-4">
+                            {quickCategories.map(cat => (
+                                <button
+                                    key={cat}
+                                    onClick={() => { setSearchQuery(cat); handleSearchMusic(cat); }}
+                                    className="px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-full text-xs text-gray-300 border border-gray-700 hover:border-purple-500 transition-colors"
+                                >
+                                    {cat}
+                                </button>
+                            ))}
                         </div>
 
                         {musicError && <p className="text-red-400 text-sm mb-2">{musicError}</p>}

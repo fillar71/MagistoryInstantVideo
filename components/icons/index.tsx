@@ -33,7 +33,7 @@ export const EffectsIcon: React.FC<IconProps> = ({ className }) => (
 
 export const MagicWandIcon: React.FC<IconProps> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className || defaultClass} strokeWidth={1.5} stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104l-1.242 2.484M14.25 20.896l-2.484-1.242m0 0l-2.034-4.068-4.068-2.034 2.034-4.068 4.068-2.034 4.068 2.034 2.034 4.068-4.068 2.034z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104l-1.242 2.484M14.25 20.896l-2.484-1.242m0 0l-2.034-4.068-4.068-2.034 2.034-4.068 4.068-2.034 2.034 4.068-4.068 2.034z" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 4.5l-2.122 2.121m0 0a3.376 3.376 0 01-4.773 4.773l-2.121 2.121m4.773-4.773l2.121-2.121" />
     </svg>
 );
@@ -123,5 +123,19 @@ export const ScissorsIcon: React.FC<IconProps> = ({ className }) => (
         <circle cx="6" cy="6" r="1.5" />
         <circle cx="6" cy="18" r="1.5" />
         <path d="M7.5 6h.75l2.25 2.25m3 3l2.25 2.25h3.75M7.5 18h.75l2.25-2.25m3-3l2.25-2.25h3.75" />
+    </svg>
+);
+
+export const PanelLeftIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className || defaultClass} strokeWidth={1.5} stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+        <path d="M9 3v18" />
+    </svg>
+);
+
+export const PanelRightIcon: React.FC<IconProps> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className || defaultClass} strokeWidth={1.5} stroke="currentColor" fill="none" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+        <path d="M15 3v18" />
     </svg>
 );

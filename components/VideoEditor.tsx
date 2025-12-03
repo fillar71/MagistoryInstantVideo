@@ -1,11 +1,10 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { VideoScript, Segment, TransitionEffect, TextOverlayStyle, WordTiming, MediaClip, AudioClip } from '../types';
 import PreviewWindow from './PreviewWindow';
 import Timeline from './Timeline';
 import Toolbar from './Toolbar';
 import MediaSearchModal from './MediaSearchModal';
-import VideoPreviewModal from './VideoPreviewModal';
 import AIToolsModal from './AIToolsModal';
 import AudioModal from './AudioModal';
 import ExportModal from './ExportModal';
@@ -34,6 +33,30 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   const segments = history.present.segments;
   const audioTracks = history.present.audioTracks;
+
+  // --- PLAYBACK STATE ---
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const playbackIntervalRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number>(0);
+
+  // --- UI STATE ---
+  const [showScriptPanel, setShowScriptPanel] = useState(true);
+  const [showPropertiesPanel, setShowPropertiesPanel] = useState(true);
+
+  // Auto-open panels on desktop mount
+  useEffect(() => {
+      if (window.innerWidth >= 768) {
+          setShowScriptPanel(true);
+          setShowPropertiesPanel(true);
+      } else {
+          setShowScriptPanel(false);
+          setShowPropertiesPanel(false);
+      }
+  }, []);
+
+  // Calculate total duration
+  const totalDuration = segments.reduce((acc, s) => acc + s.duration, 0);
 
   const updateHistory = useCallback((newSegments: Segment[], newAudioTracks: AudioClip[]) => {
       setHistory(curr => ({
@@ -85,12 +108,28 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
 
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(segments[0]?.id || null);
+  
+  // Update active segment based on playhead position during playback
+  useEffect(() => {
+      if (isPlaying) {
+          let elapsed = 0;
+          for (const seg of segments) {
+              if (currentTime >= elapsed && currentTime < elapsed + seg.duration) {
+                  if (activeSegmentId !== seg.id) {
+                      setActiveSegmentId(seg.id);
+                  }
+                  break;
+              }
+              elapsed += seg.duration;
+          }
+      }
+  }, [currentTime, isPlaying, segments]); 
+
   // Media Search State
   const [isMediaSearchOpen, setIsMediaSearchOpen] = useState(false);
   const [mediaSearchTarget, setMediaSearchTarget] = useState<{clipId: string | null}>({ clipId: null });
   const [mediaSearchMode, setMediaSearchMode] = useState<'default' | 'wizard'>('default');
 
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isAIToolsOpen, setIsAIToolsOpen] = useState(false);
   const [activeClipIdForTools, setActiveClipIdForTools] = useState<string | null>(null);
 
@@ -111,10 +150,68 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const activeSegment = segments[activeSegmentIndex] || null;
   const isLastSegment = activeSegmentIndex === segments.length - 1;
 
+  // --- PLAYBACK LOGIC ---
+  const togglePlay = useCallback(() => {
+      setIsPlaying(prev => !prev);
+  }, []);
+
+  const handleSeek = useCallback((time: number) => {
+      const clampedTime = Math.max(0, Math.min(time, totalDuration));
+      setCurrentTime(clampedTime);
+      
+      // Update active segment manually when seeking
+      let elapsed = 0;
+      for (const seg of segments) {
+          if (clampedTime >= elapsed && clampedTime < elapsed + seg.duration) {
+              setActiveSegmentId(seg.id);
+              break;
+          }
+          elapsed += seg.duration;
+      }
+  }, [totalDuration, segments]);
+
+  // Main Playback Loop
+  useEffect(() => {
+      if (isPlaying) {
+          lastTimeRef.current = performance.now();
+          
+          const loop = (timestamp: number) => {
+              const delta = (timestamp - lastTimeRef.current) / 1000;
+              lastTimeRef.current = timestamp;
+              
+              setCurrentTime(prev => {
+                  const nextTime = prev + delta;
+                  if (nextTime >= totalDuration) {
+                      setIsPlaying(false);
+                      return 0; // Loop to start or stop at end
+                  }
+                  return nextTime;
+              });
+              
+              playbackIntervalRef.current = requestAnimationFrame(loop);
+          };
+          
+          playbackIntervalRef.current = requestAnimationFrame(loop);
+      } else {
+          if (playbackIntervalRef.current) {
+              cancelAnimationFrame(playbackIntervalRef.current);
+          }
+      }
+      
+      return () => {
+          if (playbackIntervalRef.current) {
+              cancelAnimationFrame(playbackIntervalRef.current);
+          }
+      };
+  }, [isPlaying, totalDuration]);
+
+
+  // --- SEGMENT HANDLERS (Delegated to PreviewWindow/Timeline) ---
+
   const handleUpdateSegmentText = useCallback((segmentId: string, newText: string) => {
     updateSegments(prevSegments =>
       prevSegments.map(s =>
-        s.id === segmentId ? { ...s, narration_text: newText, wordTimings: undefined } : s // Reset timings if text changes
+        s.id === segmentId ? { ...s, narration_text: newText, wordTimings: undefined } : s
       )
     );
   }, [updateSegments]);
@@ -123,16 +220,12 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     updateSegments(prevSegments =>
       prevSegments.map(s => {
         if (s.id !== segmentId) return s;
-        
-        // If clipId exists, replace it
         if (clipId) {
             return {
                 ...s,
                 media: s.media.map(clip => clip.id === clipId ? { ...clip, url: newMediaUrl, type: newMediaType } : clip)
             };
         } 
-        
-        // Else, add new clip
         return {
             ...s,
             media: [...s.media, { id: `clip-${Date.now()}`, url: newMediaUrl, type: newMediaType }]
@@ -157,10 +250,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   const handleDeleteSegment = useCallback(() => {
     if (!activeSegmentId) return;
-
-    if (!window.confirm("Are you sure you want to delete this segment?")) {
-        return;
-    }
+    if (!window.confirm("Are you sure you want to delete this segment?")) return;
     
     updateSegments(prev => {
         if (prev.length <= 1) {
@@ -169,15 +259,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
         }
         const index = prev.findIndex(s => s.id === activeSegmentId);
         const newSegments = prev.filter(s => s.id !== activeSegmentId);
-        
-        // Determine new active segment
-        let nextId = null;
-        if (index > 0) nextId = newSegments[index - 1].id;
-        else if (newSegments.length > 0) nextId = newSegments[0].id;
-        
-        // Defer state update to avoid render loop issues
-        setTimeout(() => setActiveSegmentId(nextId), 0);
-        
+        setTimeout(() => setActiveSegmentId(newSegments[Math.max(0, index - 1)].id), 0);
         return newSegments;
     });
   }, [activeSegmentId, updateSegments]);
@@ -215,7 +297,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       updateSegments(prevSegments => 
         prevSegments.map(s => {
             if (s.id !== segmentId) return s;
-            if (s.media.length <= 1) return s; // Don't remove the last clip
+            if (s.media.length <= 1) return s;
             return {
                 ...s,
                 media: s.media.filter(c => c.id !== clipId)
@@ -228,16 +310,12 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     updateSegments(prevSegments =>
       prevSegments.map(s => {
         if (s.id !== segmentId) return s;
-        
         let newDuration = s.duration;
-        // If audio exists and valid duration is provided
         if (newAudioUrl && audioDuration && audioDuration > 0) {
-             // If audio is shorter than current segment duration, automatically shrink segment to match
              if (audioDuration < s.duration) {
                  newDuration = audioDuration;
              }
         }
-
         return { ...s, audioUrl: newAudioUrl, duration: newDuration };
       })
     );
@@ -316,7 +394,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     const original = segments.find(s => s.id === segmentId);
     if (!original) return;
 
-    // Minimum duration safeguard
     if (splitTime < 0.5 || splitTime > original.duration - 0.5) {
         alert("Split point too close to edge.");
         return;
@@ -326,7 +403,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     const durA = splitTime;
     const durB = original.duration - splitTime;
 
-    // Handle Narration Splitting
     let textA = original.narration_text;
     let textB = "";
     let timingsA: WordTiming[] | undefined = undefined;
@@ -341,8 +417,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
         }));
         textA = timingsA.map(w => w.word).join(' ');
         textB = timingsB.map(w => w.word).join(' ');
-    } else {
-         textB = "";
     }
 
     const mediaA = [...original.media];
@@ -373,7 +447,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   }, [segments, updateSegments]);
 
-  // --- AUDIO TRACK HANDLERS ---
   const handleAddAudioTrack = useCallback((url: string, type: 'music' | 'sfx', duration: number, name: string) => {
       const newTrack: AudioClip = {
           id: `audio-${Date.now()}`,
@@ -397,9 +470,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
 
   return (
-    <div className="flex h-full w-full bg-[#09090b] text-white overflow-hidden font-sans">
-        {/* SIDEBAR TOOLBAR (Fixed Left) */}
-        <div className="flex-shrink-0 w-16 border-r border-white/10 bg-[#0c0c0e] z-30 flex flex-col items-center py-4">
+    <div className="flex flex-col md:flex-row h-full w-full bg-zinc-950 text-white overflow-hidden font-sans">
+        
+        {/* SIDEBAR TOOLBAR (Desktop: Left, Mobile: Bottom Fixed) */}
+        <div className="flex-shrink-0 md:w-16 md:h-full w-full h-16 border-t md:border-t-0 md:border-r border-white/5 bg-zinc-900 z-30 fixed bottom-0 md:relative order-last md:order-first flex md:flex-col items-center justify-around md:justify-start md:py-4 shadow-xl">
              <Toolbar 
                 onOpenAITools={() => { 
                     setActiveClipIdForTools(activeSegment?.media[0]?.id || null);
@@ -420,63 +494,69 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
         </div>
 
         {/* MAIN WORKSPACE */}
-        <div className="flex-grow flex flex-col min-w-0">
+        <div className="flex-grow flex flex-col min-w-0 h-full mb-16 md:mb-0">
             
             {/* TOP SECTION: 3-PANE EDITOR (Script | Stage | Inspector) */}
-            <div className="flex-grow min-h-0 flex overflow-hidden">
-                 {activeSegment ? (
-                    <PreviewWindow 
-                        title={title}
-                        onTitleChange={setTitle}
-                        segments={segments} 
-                        activeSegmentId={activeSegmentId!}
-                        onUpdateSegments={updateSegments} 
-                        segment={activeSegment} 
-                        
-                        onTextChange={handleUpdateSegmentText}
-                        onUpdateAudio={handleUpdateSegmentAudio}
-                        onUpdateWordTimings={handleUpdateWordTimings}
-                        onAutoGenerateSubtitles={handleAutoGenerateSubtitles}
-                        onUpdateTextOverlayStyle={handleUpdateSegmentTextOverlayStyle}
-                        onUpdateDuration={handleUpdateSegmentDuration}
-                        onUpdateTransition={handleUpdateSegmentTransition}
-                        isLastSegment={isLastSegment}
-                        onOpenMediaSearch={(clipId) => {
-                            setMediaSearchMode('default');
-                            setMediaSearchTarget({ clipId });
-                            setIsMediaSearchOpen(true);
-                        }}
-                        onRemoveMedia={handleRemoveMedia}
-                        onOpenVideoPreview={() => setIsPreviewOpen(true)}
-                        onEditClipWithAI={(clipId) => {
-                            setActiveClipIdForTools(clipId);
-                            setIsAIToolsOpen(true);
-                        }}
-                        onReorderClips={(newMedia) => handleReorderClips(activeSegment.id, newMedia)}
-                        onUpdateVolume={handleUpdateSegmentVolume}
-                        onSplitSegment={handleSplitSegment}
-                    />
-                 ) : (
-                     <div className="w-full h-full flex items-center justify-center text-gray-500 bg-[#09090b]">
-                         <div className="text-center">
-                             <p className="mb-2">No active segment</p>
-                             <button onClick={handleAddSegment} className="text-purple-400 hover:text-purple-300 underline">Add a segment</button>
-                         </div>
-                     </div>
-                 )}
+            <div className="flex-grow min-h-0 flex overflow-hidden relative">
+                 <PreviewWindow 
+                    title={title}
+                    onTitleChange={setTitle}
+                    segments={segments} 
+                    activeSegmentId={activeSegmentId!}
+                    onUpdateSegments={updateSegments} 
+                    segment={activeSegment || segments[0]} 
+                    
+                    // Layout props
+                    showScriptPanel={showScriptPanel}
+                    setShowScriptPanel={setShowScriptPanel}
+                    showPropertiesPanel={showPropertiesPanel}
+                    setShowPropertiesPanel={setShowPropertiesPanel}
+
+                    // Playback Props
+                    currentTime={currentTime}
+                    isPlaying={isPlaying}
+                    totalDuration={totalDuration}
+                    onPlayPause={togglePlay}
+                    onSeek={handleSeek}
+
+                    onTextChange={handleUpdateSegmentText}
+                    onUpdateAudio={handleUpdateSegmentAudio}
+                    onUpdateWordTimings={handleUpdateWordTimings}
+                    onAutoGenerateSubtitles={handleAutoGenerateSubtitles}
+                    onUpdateTextOverlayStyle={handleUpdateSegmentTextOverlayStyle}
+                    onUpdateDuration={handleUpdateSegmentDuration}
+                    onUpdateTransition={handleUpdateSegmentTransition}
+                    isLastSegment={isLastSegment}
+                    onOpenMediaSearch={(clipId) => {
+                        setMediaSearchMode('default');
+                        setMediaSearchTarget({ clipId });
+                        setIsMediaSearchOpen(true);
+                    }}
+                    onRemoveMedia={handleRemoveMedia}
+                    onEditClipWithAI={(clipId) => {
+                        setActiveClipIdForTools(clipId);
+                        setIsAIToolsOpen(true);
+                    }}
+                    onReorderClips={(newMedia) => activeSegment && handleReorderClips(activeSegment.id, newMedia)}
+                    onUpdateVolume={handleUpdateSegmentVolume}
+                    onSplitSegment={handleSplitSegment}
+                />
             </div>
 
             {/* BOTTOM SECTION: TIMELINE (Fixed Height) */}
-            <div className="h-72 flex-shrink-0 border-t border-white/10 bg-[#0c0c0e] flex flex-col shadow-2xl z-20">
+            <div className="md:h-72 h-48 flex-shrink-0 border-t border-white/5 bg-zinc-900 flex flex-col shadow-2xl z-20">
                 {/* Timeline Controls Bar */}
-                 <div className="h-10 border-b border-white/5 bg-[#121214] flex items-center justify-between px-4">
+                 <div className="h-10 border-b border-white/5 bg-zinc-900 flex items-center justify-between px-4">
                     <div className="flex items-center gap-4">
-                        <span className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-purple-500"></span> Timeline
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span> <span className="hidden md:inline">Timeline</span>
+                        </span>
+                        <span className="text-xs font-mono text-gray-400 bg-zinc-800 px-2 py-0.5 rounded">
+                            {new Date(currentTime * 1000).toISOString().substr(14, 5)} <span className="text-gray-600">/</span> {new Date(totalDuration * 1000).toISOString().substr(14, 5)}
                         </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-500 font-medium">Zoom</span>
+                    <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-gray-500 font-medium hidden md:inline uppercase tracking-wider">Zoom</span>
                         <input
                             type="range"
                             min="0.5"
@@ -484,7 +564,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                             step="0.1"
                             value={timelineZoom}
                             onChange={(e) => setTimelineZoom(parseFloat((e.target as any).value))}
-                            className="w-24 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500 hover:accent-purple-400"
+                            className="w-16 md:w-24 h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-600"
                         />
                     </div>
                 </div>
@@ -508,6 +588,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                             setAudioModalTargetTrack(type);
                             setIsAudioModalOpen(true);
                         }}
+                        // Playback props passed to timeline for playhead & auto-scroll
+                        currentTime={currentTime}
+                        isPlaying={isPlaying}
+                        onSeek={handleSeek}
                     />
                 </div>
             </div>
@@ -558,12 +642,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                 initialSearchTerm={initialScript.backgroundMusicKeywords}
             />
         )}
-        <VideoPreviewModal 
-            isOpen={isPreviewOpen}
-            onClose={() => setIsPreviewOpen(false)}
-            title={title}
-            segments={segments}
-        />
         <ExportModal 
             isOpen={isExportOpen}
             onClose={() => setIsExportOpen(false)}
