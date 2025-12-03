@@ -17,6 +17,17 @@ interface RenderJob {
     resolution: { width: number; height: number };
 }
 
+// Helper: Get exact duration of a media file using ffprobe
+function getMediaDuration(filePath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+        ffmpeg.ffprobe(filePath, (err, metadata) => {
+            if (err) return reject(err);
+            const duration = metadata.format.duration;
+            resolve(duration || 0);
+        });
+    });
+}
+
 async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | 'audio'): Promise<string> {
     const ext = type === 'image' ? 'jpg' : type === 'video' ? 'mp4' : 'mp3';
     const filename = `${uuidv4()}.${ext}`;
@@ -53,7 +64,7 @@ WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,42,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,50,1
+Style: Default,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,10,10,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -92,8 +103,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if (currentLine.length > 0) {
         const start = fmtTime(currentLine[0].start);
         const end = fmtTime(currentLine[currentLine.length - 1].end);
+        // Ensure last subtitle lasts until the very end of segment duration if needed
         const lineText = currentLine.map(x => x.word).join(' ');
-        content += `Dialogue: 0,${start},${end},Default,,0,0,0,,${lineText}\n`;
+        content += `Dialogue: 0,${start},${fmtTime(duration)},Default,,0,0,0,,${lineText}\n`;
     }
 
     fs.writeFileSync(filePath, content);
@@ -120,82 +132,118 @@ export async function renderVideo(job: RenderJob): Promise<string> {
             const seg = job.segments[i];
             const segOutputPath = path.join(jobDir, `seg_${i}.mp4`);
             
-            // Download Narration Audio
+            // --- SYNC STRATEGY: AUDIO IS KING ---
+            // 1. Download audio first
+            // 2. Measure EXACT audio duration
+            // 3. Adjust visual duration to match audio exactly
+            
             let audioPath = null;
+            let exactDuration = seg.duration || 3; // Fallback
+
             if (seg.audioUrl) {
                 audioPath = await saveAsset(seg.audioUrl, jobId, 'audio');
+                try {
+                    exactDuration = await getMediaDuration(audioPath);
+                    console.log(`Segment ${i}: Exact Audio Duration = ${exactDuration}s`);
+                } catch (e) {
+                    console.warn(`Failed to probe audio duration for seg ${i}, using fallback:`, e);
+                }
+            } else {
+                // If no audio, strictly use the frontend planned duration
+                exactDuration = seg.duration;
             }
 
-            // Process Visual Clips
+            // --- VISUAL DURATION CALCULATION ---
+            const transitionDur = 0.5; // Fixed transition duration
+            const numClips = seg.media.length;
+            
+            // Logic: Total Visual Time (after overlaps) MUST EQUAL Exact Audio Duration
+            // Formula for N clips with (N-1) overlaps of transitionDur:
+            // TotalDuration = (ClipDur * N) - (TransitionDur * (N-1))
+            // Therefore: ClipDur = (TotalDuration + (TransitionDur * (N-1))) / N
+            
+            const totalOverlapTime = Math.max(0, numClips - 1) * transitionDur;
+            const requiredTotalRawDuration = exactDuration + totalOverlapTime;
+            const perClipDuration = requiredTotalRawDuration / Math.max(1, numClips);
+
             const clipInputs: { path: string, type: string, duration: number }[] = [];
-            const clipDuration = seg.duration / Math.max(1, seg.media.length);
 
             for (const clip of seg.media) {
                 const clipPath = await saveAsset(clip.url, jobId, clip.type);
-                clipInputs.push({ path: clipPath, type: clip.type, duration: clipDuration });
+                clipInputs.push({ 
+                    path: clipPath, 
+                    type: clip.type, 
+                    duration: perClipDuration // Use calculated precise duration
+                });
             }
 
-            // Create Subtitle File
+            // Create Subtitles using EXACT duration
             let assPath = '';
             if (seg.narration_text) {
                 assPath = path.join(jobDir, `subs_${i}.ass`);
-                createASSFile(assPath, seg.narration_text, seg.wordTimings, seg.duration);
+                createASSFile(assPath, seg.narration_text, seg.wordTimings, exactDuration);
             }
 
             await new Promise<void>((resolve, reject) => {
                 const cmd = ffmpeg();
                 const filters: string[] = [];
                 
-                // --- INPUTS ---
+                // --- VISUAL INPUTS ---
                 clipInputs.forEach(c => {
                     cmd.input(c.path);
                     if (c.type === 'image') cmd.inputOptions(['-loop 1']);
                 });
 
-                // Audio Input is always last input index for visual chain
+                // --- AUDIO INPUT ---
                 const audioInputIndex = clipInputs.length;
                 let audioLabel = '';
 
                 if (audioPath) {
                     cmd.input(audioPath);
-                    // Standardize audio to 44.1k Stereo
+                    // Filter: Resample to 44.1k Stereo, and slightly boost volume (1.5) for narration clarity
                     filters.push(`[${audioInputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5[a_norm]`);
                     audioLabel = 'a_norm';
                 } else {
-                    // Silence generator (must match format)
-                    cmd.input('anullsrc=channel_layout=stereo:sample_rate=44100').inputFormat('lavfi');
+                    // Generate silence that exactly matches duration
+                    cmd.input(`anullsrc=channel_layout=stereo:sample_rate=44100:duration=${exactDuration}`).inputFormat('lavfi');
                     filters.push(`[${audioInputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo[a_norm]`);
                     audioLabel = 'a_norm';
                 }
 
                 // --- VISUAL FILTERS ---
-                const transitionDuration = 0.5;
                 let videoStreamLabel = '';
 
-                // Scale & Set properties for all clips
+                // Scale & Trim
                 clipInputs.forEach((c, idx) => {
                     const label = `v${idx}`;
+                    // Important: setpts=PTS-STARTPTS resets timestamp so trim works correctly in chain
                     filters.push(`[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,trim=duration=${c.duration},setpts=PTS-STARTPTS[${label}]`);
                 });
 
-                // XFADE Logic
+                // XFADE Transitions
                 if (clipInputs.length > 1) {
                     let prevLabel = 'v0';
-                    let currentOffset = clipInputs[0].duration;
+                    let currentOffset = clipInputs[0].duration; // Start offset after first clip ends
+                    
                     for (let j = 1; j < clipInputs.length; j++) {
                         const nextLabel = `v${j}`;
                         const outLabel = `mix${j}`;
-                        const xfadeOffset = currentOffset - transitionDuration;
-                        filters.push(`[${prevLabel}][${nextLabel}]xfade=transition=fade:duration=${transitionDuration}:offset=${xfadeOffset}[${outLabel}]`);
+                        
+                        // Overlap starts 'transitionDur' before the current clip ends
+                        const xfadeOffset = currentOffset - transitionDur;
+                        
+                        filters.push(`[${prevLabel}][${nextLabel}]xfade=transition=fade:duration=${transitionDur}:offset=${xfadeOffset}[${outLabel}]`);
+                        
                         prevLabel = outLabel;
-                        currentOffset += (clipInputs[j].duration - transitionDuration);
+                        // Add duration of next clip minus the overlap we just consumed
+                        currentOffset += (clipInputs[j].duration - transitionDur);
                     }
                     videoStreamLabel = prevLabel;
                 } else {
                     videoStreamLabel = 'v0';
                 }
 
-                // Subtitles
+                // Apply Subtitles
                 if (assPath) {
                     const assFilterPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
                     filters.push(`[${videoStreamLabel}]subtitles=filename='${assFilterPath}'[vfinal]`);
@@ -206,11 +254,12 @@ export async function renderVideo(job: RenderJob): Promise<string> {
 
                 cmd.outputOptions([
                     '-map', `[${videoStreamLabel}]`,
-                    '-map', `[${audioLabel}]`, // Use mapped audio stream, NOT direct input
+                    '-map', `[${audioLabel}]`,
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
                     '-c:a', 'aac',
-                    `-t`, `${seg.duration}`
+                    // Force output duration to match audio exactly to prevent 1-frame mismatches
+                    `-t`, `${exactDuration}`
                 ]);
 
                 cmd.save(segOutputPath)
@@ -253,7 +302,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
             finalCmd.input(trackPath);
             
             const delayMs = Math.round(track.startTime * 1000);
-            const volume = track.volume || 0.8;
+            const volume = track.volume || 0.5;
             
             complexFilters.push(`[${inputCount}:a]adelay=${delayMs}|${delayMs},volume=${volume}[a${inputCount}]`);
             audioMixInputs.push(`[a${inputCount}]`);

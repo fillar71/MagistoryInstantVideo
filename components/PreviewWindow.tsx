@@ -1,29 +1,33 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import type { Segment, TextOverlayStyle, WordTiming, TransitionEffect, MediaClip } from '../types';
-import { PlayIcon, MusicIcon, MagicWandIcon, EditIcon, TrashIcon } from './icons';
+import { PlayIcon, MusicIcon, MagicWandIcon, EditIcon, TrashIcon, ScissorsIcon, PauseIcon, LargePlayIcon } from './icons';
 import { generateSpeechFromText } from '../services/geminiService';
 import { createWavBlobUrl, estimateWordTimings, generateSubtitleChunks } from '../utils/media';
 import LoadingSpinner from './LoadingSpinner';
 
 interface PreviewWindowProps {
+  title: string;
+  onTitleChange: (newTitle: string) => void;
   segment: Segment; // Active segment for preview
   segments: Segment[]; // All segments for full script view
   activeSegmentId: string;
   onUpdateSegments: (segments: Segment[]) => void; // Bulk update
-  onTextChange: (segmentId: string, newText: string) => void; // Specific updates (less used now)
+  onTextChange: (segmentId: string, newText: string) => void; 
   onUpdateAudio: (segmentId: string, newAudioUrl: string | undefined, duration?: number) => void;
   onUpdateWordTimings: (segmentId: string, timings: WordTiming[]) => void;
   onAutoGenerateSubtitles: (segmentId?: string) => void;
   onUpdateTextOverlayStyle: (segmentId: string, styleUpdate: Partial<TextOverlayStyle>) => void;
   onUpdateDuration: (segmentId: string, newDuration: number) => void;
   onUpdateTransition: (segmentId: string, transition: TransitionEffect) => void;
+  onUpdateVolume: (segmentId: string, volume: number) => void;
   isLastSegment: boolean;
   onOpenMediaSearch: (clipId: string | null) => void;
   onRemoveMedia: (segmentId: string, clipId: string) => void;
   onOpenVideoPreview: () => void;
   onEditClipWithAI: (clipId: string) => void;
   onReorderClips: (newMedia: MediaClip[]) => void;
+  onSplitSegment: (segmentId: string, splitTime: number) => void;
 }
 
 const fonts = [
@@ -34,16 +38,18 @@ const fonts = [
 ];
 
 const PreviewWindow: React.FC<PreviewWindowProps> = ({ 
+    title, onTitleChange,
     segment, segments, activeSegmentId, onUpdateSegments,
     onTextChange, onUpdateAudio, onUpdateWordTimings, onAutoGenerateSubtitles, 
-    onUpdateTextOverlayStyle, onUpdateDuration, onUpdateTransition, isLastSegment, 
-    onOpenMediaSearch, onRemoveMedia, onOpenVideoPreview, onEditClipWithAI, onReorderClips
+    onUpdateTextOverlayStyle, onUpdateDuration, onUpdateTransition, onUpdateVolume, isLastSegment, 
+    onOpenMediaSearch, onRemoveMedia, onOpenVideoPreview, onEditClipWithAI, onReorderClips, onSplitSegment
 }) => {
     const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
     const [generationProgress, setGenerationProgress] = useState('');
     const [audioError, setAudioError] = useState('');
     const audioPlayerRef = useRef<HTMLAudioElement>(null);
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
+    const [isPlaying, setIsPlaying] = useState(false);
     const [activeClipIndex, setActiveClipIndex] = useState(0);
     const [draggedClipIndex, setDraggedClipIndex] = useState<number | null>(null);
     
@@ -59,6 +65,17 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             setFullScript(script);
         }
     }, [segments]);
+
+    // Reset playback when segment changes
+    useEffect(() => {
+        setCurrentPlaybackTime(0);
+        setIsPlaying(false);
+        setActiveClipIndex(0);
+        if (audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
+            audioPlayerRef.current.currentTime = 0;
+        }
+    }, [segment.id]);
 
     // Sync active clip with playback time
     useEffect(() => {
@@ -78,7 +95,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         }
     }, [currentPlaybackTime, segment.duration, segment.media.length]);
 
-    // Only use explicit word timings. Do not estimate on the fly for display.
+    // Only use explicit word timings.
     const effectiveTimings = useMemo(() => {
         if (segment.wordTimings && segment.wordTimings.length > 0) {
             return segment.wordTimings;
@@ -86,14 +103,14 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         return [];
     }, [segment.wordTimings]);
 
-    // Memoize subtitle chunks calculation to avoid re-calc on every frame
+    // Memoize subtitle chunks
     const subtitleChunks = useMemo(() => {
         if (!style || effectiveTimings.length === 0) return [];
         return generateSubtitleChunks(
             effectiveTimings, 
             style.fontSize, 
             style.maxCaptionLines || 2,
-            800 // Approx preview container width
+            800 
         );
     }, [effectiveTimings, style?.fontSize, style?.maxCaptionLines]);
 
@@ -110,19 +127,17 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         for (let i = 0; i < maxLen; i++) {
             if (i < parts.length) {
                 if (i < newSegments.length) {
-                    // Update existing
                     if (newSegments[i].narration_text !== parts[i]) {
                         updatedSegments.push({
                             ...newSegments[i],
                             narration_text: parts[i],
-                            audioUrl: undefined, // Invalidate audio on text change
+                            audioUrl: undefined, 
                             wordTimings: undefined
                         });
                     } else {
                         updatedSegments.push(newSegments[i]);
                     }
                 } else {
-                    // Create new segment
                     const lastSeg = newSegments[newSegments.length - 1];
                     updatedSegments.push({
                         ...lastSeg,
@@ -174,7 +189,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             const base64Audio = await generateSpeechFromText(segment.narration_text);
             const wavBlobUrl = createWavBlobUrl(base64Audio);
             
-            // Create temporary audio to get duration
             const audio = new (window as any).Audio(wavBlobUrl);
             await new Promise((resolve) => {
                 audio.onloadedmetadata = () => resolve(null);
@@ -187,7 +201,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             onUpdateAudio(segment.id, wavBlobUrl, duration);
             onUpdateWordTimings(segment.id, timings);
             
-            // Update segment duration if audio is longer
             if (duration > segment.duration) {
                 onUpdateDuration(segment.id, duration);
             }
@@ -212,22 +225,18 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             
             for (let i = 0; i < updatedSegments.length; i++) {
                 const s = updatedSegments[i];
-                // Only generate if text exists
                 if (s.narration_text && s.narration_text.trim().length > 0) {
                     setGenerationProgress(`Generating audio for segment ${i+1}/${updatedSegments.length}...`);
-                    
-                    // Add a small delay to avoid rate limits
                     if (i > 0) await new Promise(r => setTimeout(r, 500));
                     
                     try {
                         const base64Audio = await generateSpeechFromText(s.narration_text);
                         const wavBlobUrl = createWavBlobUrl(base64Audio);
                         
-                        // Create temporary audio to get duration
                         const audio = new (window as any).Audio(wavBlobUrl);
                         await new Promise((resolve) => {
                             audio.onloadedmetadata = () => resolve(null);
-                            audio.onerror = () => resolve(null); // Fail safe
+                            audio.onerror = () => resolve(null);
                         });
                         
                         const duration = audio.duration && isFinite(audio.duration) ? Math.ceil(audio.duration) : s.duration;
@@ -242,7 +251,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                         changed = true;
                     } catch (err) {
                         console.error(`Failed to generate audio for segment ${i}:`, err);
-                        // Continue to next segment even if one fails
                     }
                 }
             }
@@ -254,16 +262,10 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             
         } catch (err) {
             setAudioError('Batch generation encountered errors.');
-            console.error(err);
         } finally {
             setIsGeneratingAudio(false);
             setTimeout(() => setGenerationProgress(''), 2000);
         }
-    };
-
-    const handleRemoveAudio = () => {
-        onUpdateAudio(segment.id, undefined);
-        onUpdateWordTimings(segment.id, []); 
     };
     
     const handleTimeUpdate = () => {
@@ -272,11 +274,41 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         }
     };
 
-    // Clip Drag & Drop Handlers
+    const handlePlayPause = () => {
+        if (audioPlayerRef.current) {
+            if (isPlaying) {
+                audioPlayerRef.current.pause();
+                setIsPlaying(false);
+            } else {
+                audioPlayerRef.current.play().catch(() => {});
+                setIsPlaying(true);
+            }
+        } else {
+            // Fake playback if no audio
+            setIsPlaying(!isPlaying);
+        }
+    };
+
+    // Simulated playback loop for segments without audio
+    useEffect(() => {
+        let interval: any;
+        if (isPlaying && !segment.audioUrl) {
+            interval = setInterval(() => {
+                setCurrentPlaybackTime(prev => {
+                    if (prev >= segment.duration) {
+                        setIsPlaying(false);
+                        return 0;
+                    }
+                    return prev + 0.05;
+                });
+            }, 50);
+        }
+        return () => clearInterval(interval);
+    }, [isPlaying, segment.audioUrl, segment.duration]);
+
     const handleClipDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
         setDraggedClipIndex(index);
         (e.dataTransfer as any).effectAllowed = "move";
-        // Ghost image setting if needed
     };
 
     const handleClipDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -294,22 +326,18 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         
         onReorderClips(newMedia);
         setDraggedClipIndex(null);
-        // Reset active clip to first to avoid confusion or out of bounds
         setActiveClipIndex(0);
     };
 
-    // Autoplay when new audio URL is set
+    // Auto-play when generating finishes (optional, maybe distracting)
     useEffect(() => {
         if (segment.audioUrl && audioPlayerRef.current && !isGeneratingAudio) {
             (audioPlayerRef.current as any).load();
-            (audioPlayerRef.current as any).play().catch(() => {
-                // Auto-play rules might block this
-            });
         }
     }, [segment.audioUrl, isGeneratingAudio]);
     
     const getTextPositionClass = () => {
-        if (!style) return 'justify-end'; // Default to bottom
+        if (!style) return 'justify-end'; 
         switch (style.position) {
             case 'top': return 'justify-start';
             case 'center': return 'justify-center';
@@ -319,17 +347,12 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     };
 
     const renderKaraokeText = () => {
-        if (!style) return null;
-        
-        // Strict condition: Audio must exist AND timings must be generated
-        if (!segment.audioUrl || effectiveTimings.length === 0) return null;
+        if (!style || !segment.audioUrl || effectiveTimings.length === 0) return null;
         
         const activeChunk = subtitleChunks.find(c => currentPlaybackTime >= c.start && currentPlaybackTime <= c.end);
         const displayChunk = activeChunk || (currentPlaybackTime < 0.1 ? subtitleChunks[0] : null);
 
-        if (!displayChunk) {
-             return null;
-        }
+        if (!displayChunk) return null;
 
         const animation = style.animation || 'none';
 
@@ -379,57 +402,154 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     }
 
     const currentClip = segment.media[activeClipIndex] || segment.media[0];
-
-    // Safety check
-    if (!currentClip) return <div className="bg-gray-800 p-4">No Media Found</div>;
+    
+    // Fallback if no media
+    if (!currentClip) {
+        return <div className="flex items-center justify-center h-full text-gray-500">No media selected</div>;
+    }
 
     return (
-        <div className="bg-gray-800 rounded-lg p-4 flex-grow flex flex-col md:flex-row gap-4 h-full min-h-[300px] md:min-h-0">
-            <div className="w-full md:w-2/3 flex flex-col gap-2">
-                {/* Main Preview Player */}
-                <div className="w-full aspect-video bg-black rounded-md overflow-hidden relative group shadow-lg border border-gray-700">
-                    {currentClip.type === 'video' ? (
-                        <video 
-                            key={currentClip.url}
-                            src={currentClip.url} 
-                            className="w-full h-full object-cover"
-                            controls={false}
-                            autoPlay
-                            loop
-                            muted 
-                            playsInline
-                        />
-                    ) : (
-                        <img 
-                            key={currentClip.url}
-                            src={currentClip.url} 
-                            alt={segment.search_keywords_for_media} 
-                            className="w-full h-full object-cover"
-                        />
-                    )}
-                    {/* Text Overlay */}
-                    {style && (
-                        <div className={`absolute inset-0 p-4 flex flex-col pointer-events-none ${getTextPositionClass()}`}>
-                            {renderKaraokeText()}
+        <div className="flex h-full w-full bg-[#0c0c0e] overflow-hidden text-sm">
+            
+            {/* COLUMN 1: NARRATIVE (Script & Audio) - Left Panel */}
+            <div className="w-80 flex-shrink-0 border-r border-white/10 bg-[#0c0c0e] flex flex-col z-20">
+                <div className="p-4 border-b border-white/5 bg-[#121214]">
+                     <div className="flex items-center justify-between mb-2">
+                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Project Title</label>
+                        <span className="text-[10px] text-gray-500">{segments.length} segments</span>
+                    </div>
+                    <input 
+                        type="text"
+                        value={title}
+                        onChange={(e) => onTitleChange((e.target as any).value)}
+                        className="w-full bg-transparent border-none p-0 text-base font-bold text-white focus:ring-0 placeholder-gray-600"
+                        placeholder="Untitled Project"
+                    />
+                </div>
+                
+                <div className="flex-grow flex flex-col p-4 overflow-y-auto">
+                    <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-xs font-bold text-purple-400 uppercase tracking-widest flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Script & Story
+                        </h3>
+                    </div>
+                    <textarea
+                        value={fullScript}
+                        onChange={handleScriptChange}
+                        className="flex-grow w-full bg-[#18181b] rounded-lg p-4 border border-white/5 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 resize-none text-gray-300 text-sm leading-relaxed custom-scrollbar shadow-inner"
+                        placeholder="Start typing your story script here..."
+                        spellCheck={false}
+                    />
+                    
+                    <div className="mt-4 space-y-3 bg-[#18181b] p-3 rounded-lg border border-white/5">
+                        <div className="flex justify-between items-center mb-1">
+                             <label className="text-[10px] font-bold text-gray-400 uppercase">AI Narration</label>
+                             {isGeneratingAudio && <span className="text-[10px] text-purple-400 animate-pulse">{generationProgress}</span>}
                         </div>
-                    )}
-                    {/* Hover controls overlay */}
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-4 pointer-events-none">
+                        {audioError && <p className="text-xs text-red-400">{audioError}</p>}
+                        
                         <button 
-                            onClick={onOpenVideoPreview}
-                            className="px-6 py-3 bg-purple-600/80 backdrop-blur-sm text-white font-semibold rounded-md hover:bg-purple-700/80 flex items-center gap-2 pointer-events-auto"
-                            title="Preview Full Video"
+                            onClick={handleGenerateCurrentAudio}
+                            disabled={isGeneratingAudio || !segment.narration_text}
+                            className="w-full py-2.5 bg-[#27272a] hover:bg-[#3f3f46] text-gray-200 hover:text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-2 border border-white/5"
                         >
-                            <PlayIcon className="w-5 h-5" />
-                            Preview All
+                            {isGeneratingAudio ? <LoadingSpinner /> : <MusicIcon className="w-3 h-3 text-purple-400" />}
+                            Generate Voice for Current Segment
+                        </button>
+
+                        <button 
+                            onClick={handleGenerateAllAudio} 
+                            disabled={isGeneratingAudio}
+                            className="w-full py-2.5 bg-purple-600/10 hover:bg-purple-600/20 text-purple-300 hover:text-purple-200 border border-purple-500/30 text-xs font-medium rounded transition-colors flex items-center justify-center gap-2"
+                        >
+                            <MagicWandIcon className="w-3 h-3" />
+                            Batch Generate All Voices
                         </button>
                     </div>
                 </div>
+            </div>
 
-                {/* Media Clip Sequence Strip */}
-                <div className="relative">
-                    <h3 className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Clip Sequence (Drag to Reorder)</h3>
-                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar min-h-[70px]">
+            {/* COLUMN 2: VIEWPORT (Stage) - Center Panel */}
+            <div className="flex-grow bg-black flex flex-col relative min-w-0 border-r border-white/10">
+                {/* Main Player Area */}
+                <div className="flex-grow flex items-center justify-center p-6 overflow-hidden relative bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#18181b] to-black">
+                    <div className="aspect-video w-full max-h-full bg-black shadow-2xl relative group overflow-hidden border border-white/10 ring-1 ring-black">
+                        {currentClip.type === 'video' ? (
+                            <video 
+                                key={currentClip.url}
+                                src={currentClip.url} 
+                                className="w-full h-full object-contain"
+                                controls={false}
+                                autoPlay
+                                loop
+                                muted 
+                                playsInline
+                            />
+                        ) : (
+                            <img 
+                                key={currentClip.url}
+                                src={currentClip.url} 
+                                alt={segment.search_keywords_for_media} 
+                                className="w-full h-full object-contain"
+                            />
+                        )}
+                        
+                        {/* Text Overlay */}
+                        {style && (
+                            <div className={`absolute inset-0 p-8 flex flex-col pointer-events-none ${getTextPositionClass()}`}>
+                                {renderKaraokeText()}
+                            </div>
+                        )}
+
+                        {/* Hover Overlay */}
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none backdrop-blur-[1px]">
+                             <button 
+                                onClick={onOpenVideoPreview}
+                                className="px-6 py-3 bg-white/10 hover:bg-white/20 backdrop-blur-md text-white font-bold rounded-full border border-white/20 pointer-events-auto flex items-center gap-3 transition-all transform hover:scale-105"
+                            >
+                                <LargePlayIcon className="w-6 h-6" />
+                                <span>Preview Full Video</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Floating Player Controls */}
+                <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-3/4 max-w-lg z-20">
+                     <div className="bg-[#18181b]/90 backdrop-blur-md border border-white/10 rounded-full px-6 py-3 flex items-center justify-between shadow-2xl">
+                         <div className="flex items-center gap-4">
+                            <button 
+                                onClick={handlePlayPause}
+                                className="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center hover:scale-105 transition-transform"
+                            >
+                                {isPlaying ? <PauseIcon className="w-5 h-5 fill-current" /> : <PlayIcon className="w-5 h-5 fill-current ml-0.5" />}
+                            </button>
+                            <div className="flex flex-col">
+                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Segment Time</span>
+                                <span className="text-sm font-mono text-white font-bold">{currentPlaybackTime.toFixed(1)}s <span className="text-gray-500">/</span> {segment.duration.toFixed(1)}s</span>
+                            </div>
+                         </div>
+                         
+                         <div className="h-8 w-px bg-white/10 mx-2"></div>
+                         
+                         <button
+                            onClick={() => onSplitSegment(segment.id, currentPlaybackTime)}
+                            disabled={currentPlaybackTime < 0.5 || currentPlaybackTime > segment.duration - 0.5}
+                            className="flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 rounded-full text-xs font-bold text-gray-300 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                            <ScissorsIcon className="w-4 h-4" />
+                            Split Clip
+                        </button>
+                     </div>
+                </div>
+
+                {/* Clip Strip (Bottom Bar) */}
+                <div className="h-24 bg-[#09090b] border-t border-white/10 p-3 flex flex-col flex-shrink-0 z-30">
+                    <div className="flex justify-between items-center mb-2 px-1">
+                        <h3 className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Active Media Layers</h3>
+                        <span className="text-[10px] text-gray-600">{segment.media.length} clips</span>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto custom-scrollbar h-full items-center pb-1">
                         {segment.media.map((clip, index) => {
                             const isDragging = draggedClipIndex === index;
                             const isCurrent = index === activeClipIndex;
@@ -440,7 +560,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                                     onDragStart={(e) => handleClipDragStart(e, index)}
                                     onDragOver={handleClipDragOver}
                                     onDrop={(e) => handleClipDrop(e, index)}
-                                    className={`relative flex-shrink-0 w-24 aspect-video rounded-md overflow-hidden cursor-pointer border-2 transition-all ${isCurrent ? 'border-purple-500' : 'border-gray-700 hover:border-gray-500'} ${isDragging ? 'opacity-30' : 'opacity-100'}`}
+                                    className={`relative flex-shrink-0 h-12 aspect-video rounded overflow-hidden cursor-pointer border transition-all ${isCurrent ? 'border-purple-500 ring-1 ring-purple-500 shadow-lg shadow-purple-900/20' : 'border-white/10 hover:border-white/30'} ${isDragging ? 'opacity-30' : 'opacity-100'}`}
                                     onClick={() => setActiveClipIndex(index)}
                                 >
                                     {clip.type === 'video' ? (
@@ -449,207 +569,163 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                                         <img src={clip.url} className="w-full h-full object-cover pointer-events-none" />
                                     )}
                                     
-                                    {/* Clip Tools overlay */}
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                    <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-1 backdrop-blur-[1px]">
                                          <button 
                                             onClick={(e) => { e.stopPropagation(); onEditClipWithAI(clip.id); }}
-                                            className="p-1 bg-purple-600 rounded-full hover:bg-purple-500"
-                                            title="Edit with AI"
+                                            className="p-1 bg-purple-600 rounded hover:bg-purple-500"
+                                            title="AI Edit"
                                          >
-                                            <MagicWandIcon className="w-3 h-3 text-white" />
+                                            <MagicWandIcon className="w-2.5 h-2.5 text-white" />
                                          </button>
                                          <button 
                                             onClick={(e) => { e.stopPropagation(); onOpenMediaSearch(clip.id); }}
-                                            className="p-1 bg-blue-600 rounded-full hover:bg-blue-500"
-                                            title="Replace Media"
+                                            className="p-1 bg-blue-600 rounded hover:bg-blue-500"
+                                            title="Replace"
                                          >
-                                            <EditIcon className="w-3 h-3 text-white" />
+                                            <EditIcon className="w-2.5 h-2.5 text-white" />
                                          </button>
                                           {segment.media.length > 1 && (
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); onRemoveMedia(segment.id, clip.id); }}
-                                                className="p-1 bg-red-600 rounded-full hover:bg-red-500"
-                                                title="Remove Clip"
+                                                className="p-1 bg-red-600 rounded hover:bg-red-500"
+                                                title="Delete"
                                             >
-                                                <TrashIcon className="w-3 h-3 text-white" />
+                                                <TrashIcon className="w-2.5 h-2.5 text-white" />
                                             </button>
                                           )}
                                     </div>
-                                    <div className="absolute bottom-0 right-0 bg-black/70 px-1 text-[8px] text-white">
+                                    <div className="absolute bottom-0 right-0 bg-black/80 px-1 text-[8px] text-white font-mono rounded-tl">
                                         {index + 1}
                                     </div>
                                 </div>
                             )
                         })}
-                        {/* Add Clip Button */}
                         <button 
                             onClick={() => onOpenMediaSearch(null)}
-                            className="flex-shrink-0 w-24 aspect-video bg-gray-800 border-2 border-dashed border-gray-600 rounded-md flex flex-col items-center justify-center hover:bg-gray-700 hover:border-purple-500 transition-colors gap-1 group"
+                            className="flex-shrink-0 h-12 aspect-video bg-[#18181b] border border-dashed border-gray-700 rounded flex items-center justify-center hover:bg-[#27272a] hover:border-gray-500 transition-colors gap-1 group"
                         >
-                            <span className="text-2xl text-gray-400 group-hover:text-purple-400">+</span>
-                            <span className="text-[10px] text-gray-500 group-hover:text-purple-300">Add Clip</span>
+                            <span className="text-lg text-gray-500 group-hover:text-gray-300">+</span>
                         </button>
                     </div>
                 </div>
-                
-                {/* Unified Script Textbox */}
-                <div className="mt-1 relative group flex-grow flex flex-col">
-                     <div className="flex justify-between items-center mb-1">
-                         <h3 className="text-xs font-bold text-blue-400 uppercase tracking-wider">Full Video Script (All Segments)</h3>
-                         <span className="text-[10px] text-gray-500">Separate segments with blank lines</span>
-                     </div>
-                    <div className="relative bg-gray-800 rounded-lg p-1 border border-gray-700 focus-within:border-blue-500 transition-colors flex-grow">
-                         <textarea
-                            value={fullScript}
-                            onChange={handleScriptChange}
-                            className="w-full h-full min-h-[100px] p-3 bg-transparent border-none resize-none focus:ring-0 text-white placeholder-gray-500 text-lg leading-relaxed"
-                            placeholder="Enter narration text here. Use double newlines to separate segments..."
-                        />
-                    </div>
-                </div>
+
+                {/* Hidden Audio Player for Sync */}
+                <audio 
+                    ref={audioPlayerRef} 
+                    onTimeUpdate={handleTimeUpdate}
+                    src={segment.audioUrl} 
+                    className="hidden" 
+                    onEnded={() => setIsPlaying(false)}
+                />
             </div>
 
-            {/* Right Sidebar (Settings) */}
-            <div className="w-full md:w-1/3 flex flex-col justify-between overflow-y-auto pr-2">
-                
-                {/* Duration Control */}
-                <div className="mb-4 bg-gray-700/30 p-3 rounded-lg border border-gray-700">
-                     <div className="flex justify-between items-center">
-                        <label className="text-xs text-gray-400 uppercase font-bold tracking-wider">Duration (s)</label>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            step="0.1" 
-                            value={segment.duration} 
-                            onChange={handleDurationChange}
-                            className="w-20 p-1.5 bg-gray-800 border border-gray-600 rounded text-sm focus:ring-2 focus:ring-purple-500 outline-none text-right"
-                        />
-                     </div>
+            {/* COLUMN 3: INSPECTOR (Right Panel) */}
+            <div className="w-80 flex-shrink-0 bg-[#0c0c0e] flex flex-col z-20 overflow-y-auto">
+                 <div className="p-4 border-b border-white/5 bg-[#121214]">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Properties
+                    </h3>
                 </div>
+                
+                <div className="p-5 space-y-8">
+                    {/* Duration Section */}
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">Duration</label>
+                         <div className="flex items-center bg-[#18181b] border border-white/5 rounded p-1">
+                            <input 
+                                type="number" 
+                                min="1" 
+                                step="0.1" 
+                                value={segment.duration} 
+                                onChange={handleDurationChange}
+                                className="flex-grow p-1.5 bg-transparent text-sm text-white font-mono focus:outline-none"
+                            />
+                            <span className="text-xs text-gray-500 pr-3 font-medium">SEC</span>
+                         </div>
+                    </div>
 
-                {/* Transition Control */}
-                <div className="mb-4 bg-gray-700/30 p-3 rounded-lg border border-gray-700">
-                     <div className="flex justify-between items-center">
-                        <label className="text-xs text-gray-400 uppercase font-bold tracking-wider">Transition to next</label>
-                     </div>
-                     {isLastSegment ? (
-                         <div className="text-xs text-gray-500 italic mt-1">None (End of video)</div>
-                     ) : (
-                         <select 
-                            value={segment.transition || 'fade'}
-                            onChange={handleTransitionChange}
-                            className="w-full mt-1 p-2 bg-gray-800 border border-gray-600 rounded text-sm focus:ring-2 focus:ring-purple-500 outline-none"
-                        >
-                            <option value="fade">Fade</option>
-                            <option value="slide">Slide</option>
-                            <option value="zoom">Zoom</option>
-                        </select>
+                    {/* Volume Section */}
+                     {segment.audioUrl && (
+                        <div className="space-y-3">
+                             <div className="flex justify-between items-end">
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Narration Volume</label>
+                                <span className="text-[10px] text-purple-400 font-mono">{Math.round((segment.audioVolume ?? 1) * 100)}%</span>
+                             </div>
+                             <input 
+                                type="range" 
+                                min="0" 
+                                max="1" 
+                                step="0.1" 
+                                value={segment.audioVolume ?? 1} 
+                                onChange={(e) => onUpdateVolume(segment.id, parseFloat(e.target.value))}
+                                className="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500 hover:accent-purple-400"
+                            />
+                        </div>
                      )}
-                </div>
-                
-                 {/* Text Style Controls */}
-                {style && (
-                    <div className="space-y-3 mb-4">
-                        <div className="flex items-center justify-between border-b border-gray-700 pb-2">
-                            <h4 className="text-sm font-semibold text-purple-300 uppercase tracking-wide">Text Overlay</h4>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-xs text-gray-400 block mb-1">Font</label>
-                                <select value={style.fontFamily} onChange={(e) => handleStyleChange('fontFamily', (e.target as any).value)} className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm">
-                                    {fonts.map(f => <option key={f.name} value={f.value}>{f.name}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 block mb-1">Size</label>
-                                <input type="number" value={style.fontSize} onChange={(e) => handleStyleChange('fontSize', parseInt((e.target as any).value))} className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm" />
-                            </div>
-                            <div className="col-span-2">
-                                <label className="text-xs text-gray-400 block mb-1">Highlight Color</label>
-                                <div className="flex items-center gap-2 bg-gray-700 p-1 rounded border border-gray-600">
-                                    <input type="color" value={style.color} onChange={(e) => handleStyleChange('color', (e.target as any).value)} className="w-6 h-6 p-0 border-none rounded cursor-pointer bg-transparent" />
-                                    <span className="text-xs text-gray-300">{style.color}</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 block mb-1">Lines</label>
-                                <input 
-                                    type="number" 
-                                    min="1" 
-                                    max="4" 
-                                    value={style.maxCaptionLines || 2} 
-                                    onChange={(e) => handleStyleChange('maxCaptionLines', parseInt((e.target as any).value))} 
-                                    className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm" 
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-400 block mb-1">Animation</label>
-                                <select 
-                                    value={style.animation || 'none'} 
-                                    onChange={(e) => handleStyleChange('animation', (e.target as any).value)} 
-                                    className="w-full p-1.5 bg-gray-700 border border-gray-600 rounded text-sm"
+
+                    {/* Transition Section */}
+                    <div className="space-y-3">
+                         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Transition Out</label>
+                         {isLastSegment ? (
+                             <div className="text-xs text-gray-600 italic p-3 bg-[#18181b] rounded border border-white/5 text-center">None (End of video)</div>
+                         ) : (
+                             <div className="relative">
+                                 <select 
+                                    value={segment.transition || 'fade'}
+                                    onChange={handleTransitionChange}
+                                    className="w-full p-2.5 bg-[#18181b] border border-white/5 rounded text-xs text-gray-300 focus:border-purple-500 outline-none appearance-none"
                                 >
-                                    <option value="none">None</option>
-                                    <option value="scale">Scale</option>
-                                    <option value="slide-up">Slide Up</option>
-                                    <option value="highlight">Highlight</option>
+                                    <option value="fade">Cross Fade</option>
+                                    <option value="slide">Slide Left</option>
+                                    <option value="zoom">Zoom Out</option>
                                 </select>
-                            </div>
-                        </div>
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-500">▼</div>
+                             </div>
+                         )}
                     </div>
-                )}
 
-
-                <div className="mt-auto bg-gray-800 border-t border-gray-700 pt-4">
-                    {/* Hidden Audio element to maintain logic loop for karaoke sync */}
-                    {segment.audioUrl && (
-                         <audio 
-                            ref={audioPlayerRef} 
-                            onTimeUpdate={handleTimeUpdate}
-                            src={segment.audioUrl} 
-                            className="hidden" 
-                        />
-                    )}
-                    
-                    {/* Generation Status */}
-                    {isGeneratingAudio && (
-                        <div className="mb-2 text-xs text-purple-300 animate-pulse">
-                            {generationProgress}
+                    {/* Text Styling Section */}
+                    {style && (
+                        <div className="space-y-4 pt-6 border-t border-white/5">
+                             <label className="text-[10px] font-bold text-purple-400 uppercase tracking-widest">Caption Style</label>
+                             
+                             <div className="grid grid-cols-2 gap-4">
+                                <div className="col-span-2 space-y-1">
+                                    <label className="text-[10px] text-gray-500">Font Family</label>
+                                    <select value={style.fontFamily} onChange={(e) => handleStyleChange('fontFamily', (e.target as any).value)} className="w-full p-2 bg-[#18181b] border border-white/5 rounded text-xs text-gray-300 focus:border-purple-500 outline-none">
+                                        {fonts.map(f => <option key={f.name} value={f.value}>{f.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] text-gray-500">Size (px)</label>
+                                    <input type="number" value={style.fontSize} onChange={(e) => handleStyleChange('fontSize', parseInt((e.target as any).value))} className="w-full p-2 bg-[#18181b] border border-white/5 rounded text-xs text-gray-300 focus:border-purple-500 outline-none" />
+                                </div>
+                                <div className="space-y-1">
+                                     <label className="text-[10px] text-gray-500">Highlight Color</label>
+                                     <div className="flex items-center gap-2 bg-[#18181b] border border-white/5 rounded p-1.5 h-[34px]">
+                                        <input type="color" value={style.color} onChange={(e) => handleStyleChange('color', (e.target as any).value)} className="w-6 h-full rounded border-none cursor-pointer bg-transparent p-0" />
+                                        <span className="text-[10px] text-gray-400 font-mono">{style.color}</span>
+                                     </div>
+                                </div>
+                                <div className="col-span-2 space-y-1">
+                                     <label className="text-[10px] text-gray-500">Animation</label>
+                                     <select 
+                                        value={style.animation || 'none'} 
+                                        onChange={(e) => handleStyleChange('animation', (e.target as any).value)} 
+                                        className="w-full p-2 bg-[#18181b] border border-white/5 rounded text-xs text-gray-300 focus:border-purple-500 outline-none"
+                                    >
+                                        <option value="none">None</option>
+                                        <option value="scale">Pulse Scale</option>
+                                        <option value="slide-up">Slide Up</option>
+                                        <option value="highlight">Box Highlight</option>
+                                    </select>
+                                </div>
+                             </div>
                         </div>
                     )}
-                    
-                    <div className="flex gap-2 flex-col">
-                        <button 
-                            onClick={handleGenerateCurrentAudio}
-                            disabled={isGeneratingAudio || !segment.narration_text}
-                            className="w-full px-3 py-3 bg-indigo-600 text-white text-sm font-semibold rounded hover:bg-indigo-700 disabled:bg-gray-600 flex items-center justify-center gap-2 transition-colors shadow-lg"
-                        >
-                             {isGeneratingAudio && generationProgress.includes('voice') ? <LoadingSpinner /> : <MusicIcon className="w-4 h-4" />}
-                             Generate Voice for This Segment
-                        </button>
-
-                        <button 
-                            onClick={handleGenerateAllAudio} 
-                            disabled={isGeneratingAudio}
-                            className="w-full px-3 py-3 bg-purple-600 text-white text-sm font-semibold rounded hover:bg-purple-700 disabled:bg-gray-600 flex items-center justify-center gap-2 transition-colors shadow-lg"
-                        >
-                            {isGeneratingAudio && !generationProgress.includes('voice') ? <LoadingSpinner /> : <MusicIcon className="w-4 h-4" />}
-                            Generate Voice for ALL Segments
-                        </button>
-                        
-                        {segment.audioUrl && (
-                            <button 
-                                onClick={handleRemoveAudio}
-                                className="w-full px-3 py-2 bg-red-900/30 text-red-300 border border-red-900/50 text-xs font-semibold rounded hover:bg-red-900/50"
-                                title="Remove Audio from this segment"
-                            >
-                                Remove Current Audio
-                            </button>
-                        )}
-                    </div>
-                    {audioError && <p className="text-xs text-red-400 mt-1">{audioError}</p>}
                 </div>
             </div>
+
         </div>
     );
 };
