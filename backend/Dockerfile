@@ -2,8 +2,8 @@
 FROM node:18-slim
 
 # Install FFmpeg DAN Font (Wajib untuk drawtext/subtitle)
-# fonts-dejavu: font standar
-# fontconfig: utility untuk manajemen font agar ffmpeg bisa menemukannya
+# fonts-dejavu: font standar yang dibutuhkan FFmpeg
+# fontconfig: utility agar sistem bisa mendeteksi font tersebut
 RUN apt-get update && \
     apt-get install -y ffmpeg fonts-dejavu fontconfig && \
     rm -rf /var/lib/apt/lists/*
@@ -11,19 +11,19 @@ RUN apt-get update && \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files untuk install dependencies
 COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Copy source code
+# Copy source code backend
 COPY . .
 
-# Build TypeScript
+# Build TypeScript code
 RUN npm run build
 
-# Expose port
+# Expose port (Railway akan override, tapi 3001 default)
 EXPOSE 3001
 
 # Jalankan server
