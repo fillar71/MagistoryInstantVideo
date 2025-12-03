@@ -7,7 +7,7 @@ import axios from 'axios';
 import { Buffer } from 'buffer';
 
 const TEMP_DIR = path.join((process as any).cwd(), 'temp');
-// Path font standar di Debian/Ubuntu (Docker Node Slim)
+// Standard font path in Debian/Ubuntu (Docker Node Slim) after fonts-dejavu is installed
 const FONT_PATH_DEJAVU = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 
 interface RenderJob {
@@ -45,8 +45,6 @@ async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | '
 
 // Generate Advanced Substation Alpha (.ass) subtitle file for perfect sync
 function createASSFile(filePath: string, text: string, timings: any[], duration: number) {
-    // Escape header values safely
-    // ASS Header
     let content = `[Script Info]
 ScriptType: v4.00+
 PlayResX: 1280
@@ -61,27 +59,24 @@ Style: Default,DejaVu Sans,42,&H00FFFFFF,&H000000FF,&H00000000,&H60000000,0,0,0,
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
-    // Time formatter: Seconds -> H:MM:SS.cs
     const fmtTime = (seconds: number) => {
         const date = new Date(seconds * 1000);
-        const iso = date.toISOString().substr(11, 11); // 00:00:00.00
-        return iso.slice(0, -1); // 0:00:00.00
+        const iso = date.toISOString().substr(11, 11); 
+        return iso.slice(0, -1);
     };
 
     if (!timings || timings.length === 0) {
-        // Fallback: one full line
         const end = fmtTime(duration);
         content += `Dialogue: 0,0:00:00.00,${end},Default,,0,0,0,,${text}\n`;
         fs.writeFileSync(filePath, content);
         return;
     }
 
-    // Chunk timings into lines (approx 50 chars max per line)
     const MAX_CHARS = 50;
     let currentLine: any[] = [];
     let currentLen = 0;
 
-    timings.forEach((t) => {
+    timings.forEach((t: any) => {
         if (currentLen + t.word.length > MAX_CHARS && currentLine.length > 0) {
              const start = fmtTime(currentLine[0].start);
              const end = fmtTime(currentLine[currentLine.length - 1].end);
@@ -131,7 +126,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 audioPath = await saveAsset(seg.audioUrl, jobId, 'audio');
             }
 
-            // Process Visual Clips (Handle Multi-Clip with XFADE)
+            // Process Visual Clips
             const clipInputs: { path: string, type: string, duration: number }[] = [];
             const clipDuration = seg.duration / Math.max(1, seg.media.length);
 
@@ -140,7 +135,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 clipInputs.push({ path: clipPath, type: clip.type, duration: clipDuration });
             }
 
-            // Create Subtitle File (.ass)
+            // Create Subtitle File
             let assPath = '';
             if (seg.narration_text) {
                 assPath = path.join(jobDir, `subs_${i}.ass`);
@@ -149,48 +144,49 @@ export async function renderVideo(job: RenderJob): Promise<string> {
 
             await new Promise<void>((resolve, reject) => {
                 const cmd = ffmpeg();
+                const filters: string[] = [];
                 
-                // Add All Inputs
+                // --- INPUTS ---
                 clipInputs.forEach(c => {
                     cmd.input(c.path);
                     if (c.type === 'image') cmd.inputOptions(['-loop 1']);
                 });
 
+                // Audio Input is always last input index for visual chain
+                const audioInputIndex = clipInputs.length;
+                let audioLabel = '';
+
                 if (audioPath) {
                     cmd.input(audioPath);
+                    // Standardize audio to 44.1k Stereo
+                    filters.push(`[${audioInputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5[a_norm]`);
+                    audioLabel = 'a_norm';
                 } else {
-                    // Silence filler
+                    // Silence generator (must match format)
                     cmd.input('anullsrc=channel_layout=stereo:sample_rate=44100').inputFormat('lavfi');
+                    filters.push(`[${audioInputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo[a_norm]`);
+                    audioLabel = 'a_norm';
                 }
 
-                const filters: string[] = [];
-                const transitionDuration = 0.5; // 0.5s crossfade
+                // --- VISUAL FILTERS ---
+                const transitionDuration = 0.5;
                 let videoStreamLabel = '';
 
-                // === MULTI-CLIP VISUAL PIPELINE ===
-                // 1. Scale & Setsar all inputs first
+                // Scale & Set properties for all clips
                 clipInputs.forEach((c, idx) => {
-                    // Scale to 720p, pad if needed, enforce SAR 1
-                    // trim=duration helps restrict images (which loop infinitely) to specific duration
                     const label = `v${idx}`;
                     filters.push(`[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,trim=duration=${c.duration},setpts=PTS-STARTPTS[${label}]`);
                 });
 
-                // 2. Chain XFADE if multiple clips
+                // XFADE Logic
                 if (clipInputs.length > 1) {
                     let prevLabel = 'v0';
                     let currentOffset = clipInputs[0].duration;
-
                     for (let j = 1; j < clipInputs.length; j++) {
                         const nextLabel = `v${j}`;
                         const outLabel = `mix${j}`;
-                        // Offset for xfade start = (accumulated time) - (transition duration)
-                        // Note: xfade consumes the overlap, so visual duration shrinks.
-                        // For simplicity in this auto-gen context, we assume simple dissolve.
                         const xfadeOffset = currentOffset - transitionDuration;
-                        
                         filters.push(`[${prevLabel}][${nextLabel}]xfade=transition=fade:duration=${transitionDuration}:offset=${xfadeOffset}[${outLabel}]`);
-                        
                         prevLabel = outLabel;
                         currentOffset += (clipInputs[j].duration - transitionDuration);
                     }
@@ -199,11 +195,8 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                     videoStreamLabel = 'v0';
                 }
 
-                // 3. Apply Subtitles (if existing)
+                // Subtitles
                 if (assPath) {
-                    // Escape path for windows/linux compatibility in filter string
-                    // Note: In Docker Linux, forward slash is fine. 
-                    // Need to escape colon in path (e.g. C:/) but usually fine in linux relative paths
                     const assFilterPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
                     filters.push(`[${videoStreamLabel}]subtitles=filename='${assFilterPath}'[vfinal]`);
                     videoStreamLabel = 'vfinal';
@@ -213,11 +206,11 @@ export async function renderVideo(job: RenderJob): Promise<string> {
 
                 cmd.outputOptions([
                     '-map', `[${videoStreamLabel}]`,
-                    '-map', `${clipInputs.length}:a`, // Audio input is at index = length of clips
+                    '-map', `[${audioLabel}]`, // Use mapped audio stream, NOT direct input
                     '-c:v', 'libx264',
-                    '-preset', 'ultrafast', // Fast render
+                    '-preset', 'ultrafast',
                     '-c:a', 'aac',
-                    `-t`, `${seg.duration}` // Hard limit duration to match segment
+                    `-t`, `${seg.duration}`
                 ]);
 
                 cmd.save(segOutputPath)
@@ -268,9 +261,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
         }
 
         if (audioMixInputs.length > 1) {
-            // Mix all audio tracks (narration + bg music + sfx)
-            // duration=first ensures output matches video length
-            complexFilters.push(`${audioMixInputs.join('')}amix=inputs=${audioMixInputs.length}:duration=first:dropout_transition=0[aout]`);
+            complexFilters.push(`${audioMixInputs.join('')}amix=inputs=${audioMixInputs.length}:duration=first:dropout_transition=0,dynaudnorm[aout]`);
             finalCmd.outputOptions(['-map', '0:v', '-map', '[aout]']);
         } else {
              finalCmd.outputOptions(['-map', '0:v', '-map', '0:a']);
@@ -281,7 +272,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
         }
 
         finalCmd.outputOptions([
-            '-c:v', 'copy', // Just copy video stream (saves re-encoding time)
+            '-c:v', 'copy',
             '-c:a', 'aac',
             '-shortest'
         ]);
