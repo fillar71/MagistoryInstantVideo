@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { Segment, AudioClip } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import { DownloadIcon } from './icons';
@@ -24,6 +24,15 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
     
     // Allow user to edit the URL if connection fails
     const [currentBackendUrl, setCurrentBackendUrl] = useState(DEFAULT_BACKEND_URL);
+
+    // Poll interval ref
+    const pollIntervalRef = useRef<any>(null);
+
+    useEffect(() => {
+        return () => {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        };
+    }, []);
 
     // Helper to convert blob URLs to Base64 strings so the backend can read them
     const convertBlobUrlToBase64 = async (blobUrl: string): Promise<string> => {
@@ -82,6 +91,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         setStatus('preparing');
         setError('');
         setVideoUrl(null);
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
 
         // Remove trailing slash if present
         const sanitizedUrl = currentBackendUrl.replace(/\/$/, '');
@@ -92,6 +102,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             setStatus('sending');
             setStatusText("Uploading data to render engine...");
 
+            // 1. Send Job Request
             const response = await fetch(`${sanitizedUrl}/render`, {
                 method: 'POST',
                 headers: {
@@ -100,35 +111,54 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 body: JSON.stringify(payload),
             });
 
-            // Check content type to distinguish JSON error from HTML 404/500 page
-            const contentType = response.headers.get("content-type");
-            if (contentType && contentType.indexOf("application/json") !== -1) {
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Render server failed');
-                }
-            } else {
-                 // If not JSON (likely HTML error page from Vercel/Railway/Express default)
-                 const text = await response.text();
-                 if (!response.ok) {
-                     throw new Error(`Server Error (${response.status}): ${response.statusText}. Check URL.`);
-                 }
-                 // If 200 OK but not JSON, that's weird
-                 throw new Error("Received invalid response format from server.");
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Server Error (${response.status}): ${text.substring(0, 100)}...`);
             }
 
-            setStatus('rendering');
-            setStatusText("Server is rendering your video. Please wait...");
+            const data = await response.json();
+            const jobId = data.jobId;
 
-            // The backend returns the video file directly as a blob
-            const blob = await response.blob();
-            const url = URL.createObjectURL(blob);
+            if (!jobId) throw new Error("Server did not return a Job ID.");
+
+            // 2. Start Polling
+            setStatus('rendering');
+            setStatusText("Rendering in cloud (0%)...");
             
-            setVideoUrl(url);
-            setStatus('complete');
+            pollIntervalRef.current = setInterval(async () => {
+                try {
+                    const statusRes = await fetch(`${sanitizedUrl}/status/${jobId}`);
+                    if (!statusRes.ok) return; // Retry next tick
+                    
+                    const statusData = await statusRes.json();
+                    
+                    if (statusData.status === 'completed') {
+                        clearInterval(pollIntervalRef.current);
+                        setStatusText("Downloading final video...");
+                        
+                        // 3. Download File
+                        const downloadRes = await fetch(`${sanitizedUrl}/download/${jobId}`);
+                        if (!downloadRes.ok) throw new Error("Download failed");
+                        
+                        const blob = await downloadRes.blob();
+                        const url = URL.createObjectURL(blob);
+                        setVideoUrl(url);
+                        setStatus('complete');
+                    } else if (statusData.status === 'error') {
+                        clearInterval(pollIntervalRef.current);
+                        throw new Error(statusData.error || "Render job failed on server.");
+                    } else {
+                        setStatusText("Rendering in cloud (Processing)...");
+                    }
+                } catch (pollErr: any) {
+                    // Don't crash on single poll fail, wait for next tick or timeout
+                    console.warn("Poll failed", pollErr);
+                }
+            }, 3000); // Check every 3 seconds
 
         } catch (err: any) {
             console.error(err);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
             setError(err.message || "Failed to connect to render server. Is the backend running?");
             setStatus('error');
         }
@@ -136,6 +166,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
 
     const handleClose = () => {
         if (videoUrl) URL.revokeObjectURL(videoUrl);
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
         onClose();
     };
 

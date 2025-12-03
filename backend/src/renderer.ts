@@ -7,7 +7,7 @@ import { Buffer } from 'buffer';
 
 const TEMP_DIR = path.join((process as any).cwd(), 'temp');
 // Path standar font di image Debian/Ubuntu docker slim setelah install fonts-dejavu
-const FONT_PATH = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+const FONT_PATH_DEJAVU = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 
 interface RenderJob {
     title: string;
@@ -54,6 +54,15 @@ export async function renderVideo(job: RenderJob): Promise<string> {
     const width = 1280;
     const height = 720;
 
+    // Pastikan font ada, atau cari alternatif (untuk robustness)
+    let fontPath = '';
+    if (fs.existsSync(FONT_PATH_DEJAVU)) {
+        fontPath = FONT_PATH_DEJAVU;
+    } else {
+        // Fallback: biarkan kosong, ffmpeg akan mencoba font default sistem atau error jika strict
+        console.warn("Warning: DejaVu font not found at expected path. Subtitles might fail or use default.");
+    }
+
     try {
         const segmentFiles: string[] = [];
 
@@ -92,20 +101,27 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 let videoOut = 'vscaled';
 
                 if (seg.narration_text) {
-                    // Sanitasi teks super kuat agar tidak merusak command FFmpeg
-                    let cleanText = seg.narration_text.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "'\\\\''");
-                    
-                    // Potong jika terlalu panjang untuk keamanan
-                    if (cleanText.length > 100) cleanText = cleanText.substring(0, 97) + '...';
+                    // --- SOLUSI SILVER BULLET UNTUK SUBTITLE ---
+                    // Tulis teks ke file alih-alih memasukkannya ke command line
+                    // Ini menghindari masalah escaping karakter spesial (quotes, colon, backslash)
+                    const textFilePath = path.join(jobDir, `text_${i}.txt`);
+                    // Ganti newline dengan spasi agar jadi satu baris (opsional, tergantung preferensi tampilan)
+                    const sanitizedContent = seg.narration_text.replace(/\n/g, ' ');
+                    fs.writeFileSync(textFilePath, sanitizedContent, 'utf8');
 
-                    // Cek apakah font file ada
-                    const fontOption = fs.existsSync(FONT_PATH) ? `:fontfile='${FONT_PATH}'` : '';
+                    // Escape path untuk FFmpeg (windows backslash vs linux forward slash)
+                    // Di Docker Linux aman menggunakan forward slash
+                    const fontOption = fontPath ? `:fontfile='${fontPath}'` : '';
+                    const textFileOption = `:textfile='${textFilePath}'`;
                     
-                    filters.push(`[${videoOut}]drawtext=text='${cleanText}'${fontOption}:fontcolor=white:fontsize=36:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=h-80[vtext]`);
+                    // Gunakan textfile=... alih-alih text='...'
+                    filters.push(`[${videoOut}]drawtext=${fontOption}${textFileOption}:fontcolor=white:fontsize=36:box=1:boxcolor=black@0.5:boxborderw=10:x=(w-text_w)/2:y=h-80[vtext]`);
                     videoOut = 'vtext';
                 }
 
-                segCmd.complexFilter(filters, [videoOut]);
+                // FIX: Do NOT pass [videoOut] as second arg to complexFilter if you plan to map it manually later.
+                // Fluent-ffmpeg will try to auto-map it, causing "Stream already mapped" error.
+                segCmd.complexFilter(filters);
                 
                 segCmd.outputOptions([
                     '-map', `[${videoOut}]`,
@@ -119,7 +135,10 @@ export async function renderVideo(job: RenderJob): Promise<string> {
 
                 segCmd.save(segOutputPath)
                     .on('end', () => resolve())
-                    .on('error', (err) => reject(new Error(`Error processing segment ${i}: ${err.message}`)));
+                    .on('error', (err) => {
+                        console.error(`FFmpeg Segment ${i} Error Log:`, err);
+                        reject(new Error(`Error processing segment ${i}: ${err.message}`));
+                    });
             });
 
             segmentFiles.push(segOutputPath);
