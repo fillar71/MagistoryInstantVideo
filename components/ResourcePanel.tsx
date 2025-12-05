@@ -27,6 +27,7 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
   // Tab specific states
   const [audioSearchType, setAudioSearchType] = useState<'music' | 'sfx'>('music');
   const [mediaSource, setMediaSource] = useState<'stock' | 'upload'>('stock');
+  const [stockMediaType, setStockMediaType] = useState<'all' | 'image' | 'video'>('all');
 
   // Hover Preview State
   const [hoveredVideoId, setHoveredVideoId] = useState<number | null>(null);
@@ -38,6 +39,7 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
     setQuery('');
     if (activeTab === 'media') {
         setMediaSource('stock');
+        setStockMediaType('all');
         handleSearch('business');
     }
     if (activeTab === 'audio') {
@@ -47,12 +49,15 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
     }
   }, [activeTab, initialAudioType]);
 
-  // Re-search when switching audio type
+  // Re-search when switching audio type or stock media type
   useEffect(() => {
       if (activeTab === 'audio' && query) {
           handleSearch(query);
       }
-  }, [audioSearchType]);
+      if (activeTab === 'media' && mediaSource === 'stock' && query) {
+          handleSearch(query);
+      }
+  }, [audioSearchType, stockMediaType]);
 
   const handleSearch = async (overrideQuery?: string) => {
     const q = overrideQuery || query;
@@ -62,18 +67,26 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
 
     try {
       if (activeTab === 'media') {
-        // Use Pexels for Photos & Videos
-        const [photos, videos] = await Promise.all([
-           searchPexelsPhotos(q),
-           searchPexelsVideos(q)
-        ]);
-        const combined = [];
-        const max = Math.max(photos.length, videos.length);
-        for(let i=0; i<max; i++) {
-           if(photos[i]) combined.push({...photos[i], type: 'image'});
-           if(videos[i]) combined.push({...videos[i], type: 'video'});
+        let finalResults: any[] = [];
+        
+        if (stockMediaType === 'all') {
+            const [photos, videos] = await Promise.all([
+               searchPexelsPhotos(q),
+               searchPexelsVideos(q)
+            ]);
+            const max = Math.max(photos.length, videos.length);
+            for(let i=0; i<max; i++) {
+               if(photos[i]) finalResults.push({...photos[i], type: 'image'});
+               if(videos[i]) finalResults.push({...videos[i], type: 'video'});
+            }
+        } else if (stockMediaType === 'image') {
+            const photos = await searchPexelsPhotos(q);
+            finalResults = photos.map(p => ({...p, type: 'image'}));
+        } else if (stockMediaType === 'video') {
+            const videos = await searchPexelsVideos(q);
+            finalResults = videos.map(v => ({...v, type: 'video'}));
         }
-        setResults(combined);
+        setResults(finalResults);
       } else if (activeTab === 'audio') {
         // Keep Pixabay for Audio (Pexels doesn't support audio)
         const audio = await searchPixabayAudio(q, audioSearchType);
@@ -131,6 +144,16 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
       }
       // Reset input
       if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  const getSearchPlaceholder = () => {
+      if (activeTab === 'audio') return `Search ${audioSearchType === 'music' ? 'Music' : 'SFX'}...`;
+      if (activeTab === 'media') {
+          if (stockMediaType === 'image') return 'Search Photos...';
+          if (stockMediaType === 'video') return 'Search Videos...';
+          return 'Search Media...';
+      }
+      return 'Search...';
   }
 
   if (activeTab === 'text') {
@@ -251,16 +274,31 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
 
         {/* Search Bar */}
         {showSearch && (
-            <div className="relative">
-            <input
-                type="text"
-                className="w-full bg-[#121212] border border-gray-700 rounded-md py-2 pl-9 pr-3 text-xs text-white focus:outline-none focus:border-purple-500 placeholder-gray-500 transition-colors"
-                placeholder={`Search ${activeTab === 'audio' ? audioSearchType : 'Pexels'}...`}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-            />
-            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+            <div className="relative mb-2">
+                <input
+                    type="text"
+                    className="w-full bg-[#121212] border border-gray-700 rounded-md py-2 pl-9 pr-3 text-xs text-white focus:outline-none focus:border-purple-500 placeholder-gray-500 transition-colors"
+                    placeholder={getSearchPlaceholder()}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                />
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+            </div>
+        )}
+        
+        {/* Media Type Filter (Sub-tabs for Stock) */}
+        {activeTab === 'media' && mediaSource === 'stock' && (
+            <div className="flex bg-[#252525] p-1 rounded-md mb-2">
+                {(['all', 'image', 'video'] as const).map(type => (
+                    <button 
+                        key={type}
+                        onClick={() => setStockMediaType(type)}
+                        className={`flex-1 py-1 text-[10px] font-bold uppercase rounded transition-colors ${stockMediaType === type ? 'bg-gray-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                    >
+                        {type === 'image' ? 'Photos' : type === 'video' ? 'Videos' : 'All'}
+                    </button>
+                ))}
             </div>
         )}
         
@@ -294,7 +332,9 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
               <>
                   {mediaSource === 'stock' ? (
                      <>
-                        <div className="text-[10px] text-gray-500 text-right mb-2">Powered by Pexels</div>
+                        <div className="text-[10px] text-gray-500 text-right mb-2 flex items-center justify-end gap-1">
+                            <span>Powered by Pexels</span>
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
                             {results.map((item, i) => (
                             <div 
@@ -341,8 +381,15 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                                 <img src={item.src.medium} className="w-full h-full object-cover" loading="lazy" />
                                 )}
                                 <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors pointer-events-none"></div>
-                                <div className="absolute bottom-0 left-0 right-0 p-1 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <p className="text-[8px] text-white truncate">{item.photographer || item.user?.name}</p>
+                                
+                                {/* Credits & License Overlay */}
+                                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none flex flex-col justify-end min-h-[40px]">
+                                    <p className="text-[9px] text-gray-300 leading-tight">
+                                        {item.type === 'video' ? 'Video' : 'Photo'} by <span className="text-white font-medium hover:underline">{item.photographer || item.user?.name}</span> on Pexels
+                                    </p>
+                                    <p className="text-[8px] text-green-400 mt-1 font-medium bg-green-900/30 inline-block px-1 rounded border border-green-500/20 w-fit">
+                                        Free for Commercial Use
+                                    </p>
                                 </div>
                             </div>
                             ))}

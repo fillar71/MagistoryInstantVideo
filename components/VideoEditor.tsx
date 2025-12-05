@@ -1,5 +1,4 @@
 
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { VideoScript, Segment, TransitionEffect, TextOverlayStyle, WordTiming, MediaClip, AudioClip } from '../types';
 import PreviewWindow from './PreviewWindow';
@@ -511,6 +510,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                         onAddSegment={handleAddSegment}
                         onUpdateAudioTrack={handleUpdateAudioTrack}
                         onDeleteAudioTrack={handleDeleteAudioTrack}
+                        onUpdateSegmentDuration={handleUpdateSegmentDuration}
                         onAddAudioTrack={handleTimelineAddAudio}
                         currentTime={currentTime}
                         isPlaying={isPlaying}
