@@ -3,6 +3,8 @@
 
 
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { searchPixabayAudio } from '../services/pixabayService';
 import { searchPexelsPhotos, searchPexelsVideos } from '../services/pexelsService';
@@ -216,7 +218,7 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                     onClick={onAutoCaptions}
                     className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 border border-white/10"
                     >
-                    <TextIcon className="w-3 h-3" /> Generate Subtitles
+                    <TextIcon className="w-3 h-3" /> Generate All Subtitles
                 </button>
             </div>
 

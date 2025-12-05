@@ -3,6 +3,7 @@
 
 
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import type { Segment, AIToolTab } from '../types';
 import LoadingSpinner from './LoadingSpinner';
@@ -16,7 +17,7 @@ import {
 } from '../services/geminiService';
 import { searchPixabayAudio } from '../services/pixabayService';
 import { imageUrlToBase64, createWavBlobUrl, getAudioDuration } from '../utils/media';
-import { VolumeXIcon } from './icons';
+import { VolumeXIcon, MagicWandIcon } from './icons';
 
 interface AIToolsModalProps {
   isOpen: boolean;
@@ -26,9 +27,10 @@ interface AIToolsModalProps {
   onUpdateMedia: (newUrl: string) => void; // This callback in parent will handle updating specific clip
   onUpdateAudio: (newUrl: string, duration?: number) => void;
   initialTab?: AIToolTab;
+  onGenerateAllNarrations?: () => Promise<void>;
 }
 
-const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio, initialTab = 'edit-image' }) => {
+const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio, initialTab = 'edit-image', onGenerateAllNarrations }) => {
   const [activeTab, setActiveTab] = useState<AIToolTab>(initialTab);
 
   // Reset tab when modal opens/closes or initialTab changes
@@ -65,7 +67,7 @@ const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, a
           {activeTab === 'generate-image' && <GenerateImageTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'edit-image' && <EditImageTab mediaUrl={activeClip.url} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'generate-video' && <GenerateVideoTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
-          {activeTab === 'tts' && <TextToSpeechTab segment={segment} onUpdateAudio={onUpdateAudio} />}
+          {activeTab === 'tts' && <TextToSpeechTab segment={segment} onUpdateAudio={onUpdateAudio} onGenerateAllNarrations={onGenerateAllNarrations} />}
           {activeTab === 'generate-sfx' && <GenerateSFXTab segment={segment} onUpdateAudio={onUpdateAudio} onClose={onClose} />}
         </div>
       </div>
@@ -384,10 +386,11 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 
 
 // --- Text to Speech Tab ---
-const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string, duration?: number) => void; }> = ({ segment, onUpdateAudio }) => {
+const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string, duration?: number) => void; onGenerateAllNarrations?: () => Promise<void> }> = ({ segment, onUpdateAudio, onGenerateAllNarrations }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [audioSrc, setAudioSrc] = useState<string | null>(segment.audioUrl || null);
     const [error, setError] = useState('');
+    const [isGeneratingAll, setIsGeneratingAll] = useState(false);
 
     const handleGenerate = async () => {
         if (!segment.narration_text) return;
@@ -409,6 +412,18 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string,
         }
     }
 
+    const handleGenerateAll = async () => {
+        if (!onGenerateAllNarrations) return;
+        setIsGeneratingAll(true);
+        try {
+            await onGenerateAllNarrations();
+        } catch (err) {
+            console.error("Error generating all narrations", err);
+        } finally {
+            setIsGeneratingAll(false);
+        }
+    }
+
     return (
          <div>
             <p className="text-gray-300 mb-2">Generate a voiceover for the narration text.</p>
@@ -424,6 +439,21 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string,
                     <p className="text-green-400 text-center mb-2">Audio generated successfully!</p>
                     <audio src={audioSrc} controls className="w-full"></audio>
                 </div>
+            )}
+            
+            {onGenerateAllNarrations && (
+               <div className="mt-8 pt-6 border-t border-gray-700">
+                   <p className="text-gray-400 mb-2 text-sm font-bold uppercase tracking-wider">Project Actions</p>
+                   <button 
+                       onClick={handleGenerateAll}
+                       disabled={isGeneratingAll}
+                       className="w-full py-3 bg-gray-700 hover:bg-gray-600 border border-gray-600 hover:border-purple-500 text-white font-semibold rounded-md flex items-center justify-center gap-2 transition-colors"
+                   >
+                       {isGeneratingAll ? <LoadingSpinner /> : <MagicWandIcon className="w-4 h-4" />}
+                       Generate All Audio Narrations
+                   </button>
+                   <p className="text-[10px] text-gray-500 mt-2 text-center">Generates voiceovers for all scenes in the project sequentially.</p>
+               </div>
             )}
         </div>
     );

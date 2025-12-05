@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { VideoScript, Segment, TransitionEffect, TextOverlayStyle, WordTiming, MediaClip, AudioClip, AIToolTab } from '../types';
 import PreviewWindow from './PreviewWindow';
@@ -7,7 +8,8 @@ import PropertiesPanel from './PropertiesPanel';
 import AIToolsModal from './AIToolsModal';
 import ExportModal from './ExportModal';
 import { UndoIcon, RedoIcon, ExportIcon, MediaIcon, MusicIcon, TextIcon, MagicWandIcon, ChevronLeftIcon } from './icons';
-import { estimateWordTimings, getAudioDuration } from '../utils/media';
+import { estimateWordTimings, getAudioDuration, createWavBlobUrl } from '../utils/media';
+import { generateSpeechFromText } from '../services/geminiService';
 
 interface VideoEditorProps {
   initialScript: VideoScript;
@@ -253,6 +255,35 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     }));
     if (window.innerWidth < 768) setIsResourcePanelOpen(false);
   }, [updateSegments]);
+
+  const handleGenerateAllNarrations = useCallback(async () => {
+      const newSegments = [...segments];
+      let hasUpdates = false;
+
+      for (let i = 0; i < newSegments.length; i++) {
+          const seg = newSegments[i];
+          if (seg.narration_text) {
+             try {
+                 const base64Audio = await generateSpeechFromText(seg.narration_text);
+                 const wavUrl = createWavBlobUrl(base64Audio);
+                 const duration = await getAudioDuration(wavUrl);
+                 
+                 newSegments[i] = {
+                     ...seg,
+                     audioUrl: wavUrl,
+                     duration: duration
+                 };
+                 hasUpdates = true;
+             } catch (e) {
+                 console.error(`Failed to generate narration for segment ${i}`, e);
+             }
+          }
+      }
+      
+      if (hasUpdates) {
+          updateSegments(newSegments);
+      }
+  }, [segments, updateSegments]);
 
 
   const handleUpdateSegmentAudio = useCallback((segmentId: string, newAudioUrl: string | undefined, audioDuration?: number) => {
@@ -570,6 +601,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                 onUpdateMedia={(newUrl) => handleResourceSelectMedia(newUrl, 'image')}
                 onUpdateAudio={(newUrl, duration) => handleUpdateSegmentAudio(activeSegment.id, newUrl, duration)}
                 initialTab={aiToolsInitialTab}
+                onGenerateAllNarrations={handleGenerateAllNarrations}
             />
         )}
 

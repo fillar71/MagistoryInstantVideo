@@ -120,12 +120,16 @@ const Timeline: React.FC<TimelineProps> = ({
                 const containerRect = timelineRef.current.getBoundingClientRect();
                 const relativeX = (e.clientX - containerRect.left + scrollLeft);
                 
-                // Find index based on width accumulation
-                let accumWidth = 0;
-                let hoverIndex = segments.length - 1;
+                // CRITICAL FIX: Use tempSegments (the active list) for calculating positions, 
+                // otherwise resizing logic breaks when swapping elements of different widths
+                const currentList = tempSegments || segments;
                 
-                for(let i=0; i<segments.length; i++) {
-                    const segWidth = segments[i].duration * pixelsPerSecond;
+                // Find index based on width accumulation of the CURRENT order
+                let accumWidth = 0;
+                let hoverIndex = currentList.length - 1;
+                
+                for(let i=0; i<currentList.length; i++) {
+                    const segWidth = currentList[i].duration * pixelsPerSecond;
                     if (relativeX < accumWidth + (segWidth / 2)) {
                         hoverIndex = i;
                         break;
@@ -134,9 +138,9 @@ const Timeline: React.FC<TimelineProps> = ({
                 }
                 
                 // Swap logic
-                const currentIndex = tempSegments!.findIndex(s => s.id === dragState.itemId);
+                const currentIndex = currentList.findIndex(s => s.id === dragState.itemId);
                 if (currentIndex !== -1 && currentIndex !== hoverIndex) {
-                    const newOrder = [...tempSegments!];
+                    const newOrder = [...currentList];
                     const [moved] = newOrder.splice(currentIndex, 1);
                     newOrder.splice(hoverIndex, 0, moved);
                     setTempSegments(newOrder);
@@ -179,7 +183,7 @@ const Timeline: React.FC<TimelineProps> = ({
             window.removeEventListener('mousemove', handleMouseMove);
             window.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [dragState, pixelsPerSecond, onUpdateAudioTrack, onUpdateSegmentDuration, onReorder, segments, audioTracks]);
+    }, [dragState, pixelsPerSecond, onUpdateAudioTrack, onUpdateSegmentDuration, onReorder, segments, audioTracks, tempSegments, tempAudioTracks]);
 
 
     const handleTimelineClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -290,23 +294,23 @@ const Timeline: React.FC<TimelineProps> = ({
                                         <div
                                             key={segment.id}
                                             style={{ width }}
-                                            className={`relative flex-shrink-0 h-full overflow-visible border-r border-black/50 group/clip select-none transition-all duration-150 ease-out
+                                            className={`relative flex-shrink-0 h-full overflow-visible border-r border-black/50 group/clip select-none transition-all duration-75 ease-out
                                                 ${isActive 
                                                     ? 'ring-2 ring-purple-400 z-20 shadow-[0_0_15px_rgba(168,85,247,0.6)] brightness-110 scale-[1.01] rounded-sm' 
                                                     : 'brightness-75 hover:brightness-100 opacity-90 hover:opacity-100 hover:z-10'
                                                 }
-                                                ${isDragging ? 'opacity-50 scale-95 cursor-grabbing' : 'cursor-grab active:cursor-grabbing'}
+                                                ${isDragging ? 'opacity-50 scale-95 cursor-grabbing z-30 shadow-xl' : 'cursor-grab active:cursor-grabbing'}
                                             `}
                                             onMouseDown={(e) => handleMouseDown(e, 'move-segment', segment.id, index)}
                                             onClick={(e) => { e.stopPropagation(); setActiveSegmentId(segment.id); }}
                                         >
                                             {/* Clip Background/Thumbnail */}
-                                            <div className="absolute inset-0 flex bg-gray-800 overflow-hidden rounded-sm">
+                                            <div className="absolute inset-0 flex bg-gray-800 overflow-hidden rounded-sm pointer-events-none">
                                                 {Array.from({ length: Math.min(10, Math.ceil(width / 80)) }).map((_, i) => (
                                                     <img 
                                                         key={i} 
                                                         src={segment.media[0].url} 
-                                                        className="h-full w-full object-cover pointer-events-none opacity-60 flex-grow" 
+                                                        className="h-full w-full object-cover opacity-60 flex-grow min-w-0" 
                                                         loading="lazy"
                                                     />
                                                 ))}
@@ -325,8 +329,9 @@ const Timeline: React.FC<TimelineProps> = ({
                                             <div 
                                                 className="absolute top-0 bottom-0 right-0 w-4 cursor-ew-resize z-20 hover:bg-purple-500/50 flex items-center justify-center opacity-0 group-hover/clip:opacity-100 transition-opacity"
                                                 onMouseDown={(e) => handleMouseDown(e, 'resize-segment', segment.id, segment.duration)}
+                                                onClick={(e) => e.stopPropagation()}
                                             >
-                                                <div className="w-1 h-8 bg-white/80 rounded-full shadow-sm"></div>
+                                                <div className="w-1 h-8 bg-white/80 rounded-full shadow-sm pointer-events-none"></div>
                                             </div>
                                         </div>
                                     );
@@ -406,8 +411,9 @@ const Timeline: React.FC<TimelineProps> = ({
                                                 <div 
                                                     className="absolute top-0 bottom-0 right-[-6px] w-4 cursor-ew-resize z-20 hover:bg-white/20 rounded flex items-center justify-center opacity-0 group-hover/audio:opacity-100"
                                                     onMouseDown={(e) => handleMouseDown(e, 'resize-audio', track.id, track.duration)}
+                                                    onClick={(e) => e.stopPropagation()}
                                                 >
-                                                    <div className="w-1 h-4 bg-white shadow-sm rounded-full"></div>
+                                                    <div className="w-1 h-4 bg-white shadow-sm rounded-full pointer-events-none"></div>
                                                 </div>
                                             </div>
                                         </div>
