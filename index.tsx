@@ -1,6 +1,12 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+import { AuthProvider } from './contexts/AuthContext';
+
+// GANTI DENGAN CLIENT ID ANDA DARI GOOGLE CLOUD CONSOLE
+const GOOGLE_CLIENT_ID = "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
 
 const rootElement = (window as any).document.getElementById('root');
 if (!rootElement) {
@@ -10,6 +16,10 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+        <AuthProvider>
+            <App />
+        </AuthProvider>
+    </GoogleOAuthProvider>
   </React.StrictMode>
 );

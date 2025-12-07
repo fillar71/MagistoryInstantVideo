@@ -1,11 +1,15 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { VideoScript } from './types';
 import PromptInput from './components/PromptInput';
 import VideoEditor from './components/VideoEditor';
 import LandingPage from './components/LandingPage';
+import PricingSection from './components/PricingSection';
+import LoginModal from './components/LoginModal';
 import { generateVideoScript } from './services/geminiService';
 import LoadingSpinner from './components/LoadingSpinner';
+import { useAuth } from './contexts/AuthContext';
+import { MagicWandIcon } from './components/icons';
 
 type AppView = 'landing' | 'prompt' | 'editor';
 
@@ -14,8 +18,29 @@ const App: React.FC = () => {
   const [videoScript, setVideoScript] = useState<VideoScript | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  
+  const { user, deductCredits, isLoading: isAuthLoading } = useAuth();
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
+  // Force login on Get Started or Manual Start
+  const checkAuth = () => {
+      if (!user) {
+          setShowLoginModal(true);
+          return false;
+      }
+      return true;
+  };
 
   const handleGenerateScript = async (topic: string, duration: string, aspectRatio: 'landscape' | 'portrait', visualStyle: 'video' | 'image') => {
+    if (!checkAuth()) return;
+    
+    // Calculate cost: parse duration string "1 minute" -> 1 credit, "2 minutes" -> 2 credits
+    const minutes = parseInt(duration) || 1;
+    const cost = minutes * 1;
+
+    const success = await deductCredits(cost, 'magic_video');
+    if (!success) return; // deductCredits handles the alert
+
     setIsLoading(true);
     setError(null);
     setVideoScript(null);
@@ -27,13 +52,14 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error("Error generating script:", err);
       setError(err.message || "Failed to generate video script. Please try again.");
-      // Stay on prompt view to show error
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleManualStart = () => {
+    if (!checkAuth()) return;
+
     const initialScript: VideoScript = {
         title: "New Project",
         segments: [{
@@ -79,6 +105,8 @@ const App: React.FC = () => {
   // Determine if header should be compact (in editor) or transparent/standard
   const isEditor = view === 'editor';
 
+  if (isAuthLoading) return <div className="h-screen flex items-center justify-center bg-gray-900"><LoadingSpinner /></div>;
+
   return (
     <div className="h-screen bg-gray-900 text-gray-100 font-sans flex flex-col overflow-hidden">
       {/* HEADER */}
@@ -96,6 +124,21 @@ const App: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-4">
+                {user ? (
+                    <div className="flex items-center gap-3 bg-gray-800 px-3 py-1.5 rounded-full border border-gray-700">
+                        <div className="flex items-center gap-1 text-yellow-400 font-bold text-sm">
+                            <MagicWandIcon className="w-4 h-4" />
+                            {user.credits}
+                        </div>
+                        <div className="w-px h-4 bg-gray-600"></div>
+                        <div className="text-xs text-gray-300 truncate max-w-[100px]">{user.name}</div>
+                    </div>
+                ) : (
+                    <button onClick={() => setShowLoginModal(true)} className="text-sm font-semibold hover:text-white text-gray-300">
+                        Sign In
+                    </button>
+                )}
+
                 {isEditor && (
                 <button
                     onClick={handleBackToStart}
@@ -106,7 +149,9 @@ const App: React.FC = () => {
                 )}
                 {view === 'landing' && (
                     <button 
-                        onClick={() => setView('prompt')}
+                        onClick={() => {
+                            if (checkAuth()) setView('prompt');
+                        }}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold rounded-full transition-colors"
                     >
                         Get Started
@@ -117,10 +162,15 @@ const App: React.FC = () => {
       </header>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-grow overflow-auto relative bg-gray-900 custom-scrollbar">
+      <main className="flex-grow overflow-auto relative bg-gray-900 custom-scrollbar scroll-smooth">
         
         {view === 'landing' && (
-            <LandingPage onGetStarted={() => setView('prompt')} />
+            <>
+                <LandingPage onGetStarted={() => {
+                    if (checkAuth()) setView('prompt');
+                }} />
+                <PricingSection />
+            </>
         )}
 
         {view === 'prompt' && (
@@ -129,7 +179,7 @@ const App: React.FC = () => {
                     <div className="flex flex-col items-center justify-center animate-fade-in">
                         <LoadingSpinner />
                         <h2 className="mt-8 text-2xl font-bold text-white">Generating Magic...</h2>
-                        <p className="mt-2 text-gray-400">Writing script, finding media, and casting voices.</p>
+                        <p className="mt-2 text-gray-400">Spending credits to cast spells...</p>
                     </div>
                 ) : (
                     <div className="w-full max-w-4xl animate-fade-in-up">
@@ -160,6 +210,12 @@ const App: React.FC = () => {
         )}
 
       </main>
+
+      <LoginModal 
+        isOpen={showLoginModal} 
+        onClose={() => setShowLoginModal(false)} 
+        message={!user ? "Sign in to get your 10 FREE credits!" : undefined}
+      />
     </div>
   );
 };

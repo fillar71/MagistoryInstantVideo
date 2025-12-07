@@ -5,6 +5,8 @@ import { renderVideo } from './renderer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+import { PrismaClient } from '@prisma/client';
+import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware } from './auth';
 
 // Handle unhandled exceptions
 (process as any).on('uncaughtException', (err: any) => {
@@ -12,6 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 });
 
 const app = express();
+const prisma = new PrismaClient();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
 app.use(express.json({ limit: '500mb' }));
@@ -21,6 +24,67 @@ const TEMP_DIR = path.join((process as any).cwd(), 'temp');
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
+
+// --- AUTH ROUTES ---
+
+app.post('/auth/google', async (req, res) => {
+    const { token } = req.body;
+    try {
+        const payload = await verifyGoogleToken(token);
+        if (!payload || !payload.email) throw new Error("Invalid Google Token");
+
+        const user = await findOrCreateUser(payload.email, payload.name || 'User', payload.sub);
+        const sessionToken = generateSessionToken(user);
+
+        res.json({ token: sessionToken, user: { id: user.id, name: user.name, email: user.email, credits: user.credits } });
+    } catch (error: any) {
+        console.error("Auth Error:", error);
+        res.status(401).json({ error: "Authentication failed" });
+    }
+});
+
+app.get('/user/me', authMiddleware, async (req: any, res) => {
+    try {
+        const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json({ id: user.id, name: user.name, email: user.email, credits: user.credits });
+    } catch (error) {
+        res.status(500).json({ error: "Server error" });
+    }
+});
+
+// --- CREDIT SYSTEM ROUTES ---
+
+// Deduct credits for an action
+app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
+    const { action, cost, details } = req.body;
+    const userId = req.user.id;
+
+    try {
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (!user) return res.status(404).json({ error: "User not found" });
+
+        if (user.credits < cost) {
+            return res.status(403).json({ error: "Insufficient credits", currentCredits: user.credits });
+        }
+
+        // Transaction: Update user & log history
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: { credits: { decrement: cost } }
+        });
+
+        // Optional: Add to CreditTransaction table history here if needed
+        
+        res.json({ success: true, remainingCredits: updatedUser.credits });
+    } catch (error) {
+        console.error("Credit Deduct Error:", error);
+        res.status(500).json({ error: "Transaction failed" });
+    }
+});
+
+
+// --- RENDERER ROUTES (Existing) ---
 
 // Simple in-memory job store
 const jobs = new Map<string, { status: 'processing' | 'completed' | 'error', path?: string, error?: string, createdAt: number }>();
