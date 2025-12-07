@@ -15,13 +15,13 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerateScript = async (topic: string, duration: string, aspectRatio: 'landscape' | 'portrait') => {
+  const handleGenerateScript = async (topic: string, duration: string, aspectRatio: 'landscape' | 'portrait', visualStyle: 'video' | 'image') => {
     setIsLoading(true);
     setError(null);
     setVideoScript(null);
 
     try {
-      const script = await generateVideoScript(topic, duration, aspectRatio);
+      const script = await generateVideoScript(topic, duration, aspectRatio, visualStyle);
       setVideoScript(script);
       setView('editor');
     } catch (err: any) {

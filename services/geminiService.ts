@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import type { VideoScript, Segment, TransitionEffect, AudioClip } from '../types';
 import { searchPixabayAudio } from "./pixabayService";
@@ -20,7 +19,7 @@ const getAI = () => {
     return new GoogleGenAI({ apiKey });
 };
 
-export async function generateVideoScript(topic: string, requestedDuration: string, aspectRatio: 'landscape' | 'portrait' = 'landscape'): Promise<VideoScript> {
+export async function generateVideoScript(topic: string, requestedDuration: string, aspectRatio: 'landscape' | 'portrait' = 'landscape', visualStyle: 'video' | 'image' = 'video'): Promise<VideoScript> {
   const ai = getAI();
   try {
     const response = await ai.models.generateContent({
@@ -117,27 +116,33 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
         let mediaType: 'image' | 'video' = 'image';
         
         try {
-            // Try fetching video first to prioritize dynamic content from Pexels
-            // Pass the aspect ratio here
-            const videoResults = await searchPexelsVideos(keyword, aspectRatio);
-            if (videoResults && videoResults.length > 0) {
-                const video = videoResults[0];
-                // Pexels mapping from service returns normalized structure
-                // PRIORITIZE SD/Tiny for draft creation
-                const bestVideoFile = video.video_files.find((f: any) => f.quality === 'sd') || 
-                                      video.video_files.find((f: any) => f.quality === 'tiny') || 
-                                      video.video_files[0];
-                if (bestVideoFile) {
-                    mediaUrl = bestVideoFile.link;
-                    mediaType = 'video';
+            if (visualStyle === 'video') {
+                // PRIORITIZE VIDEO
+                const videoResults = await searchPexelsVideos(keyword, aspectRatio);
+                if (videoResults && videoResults.length > 0) {
+                    const video = videoResults[0];
+                    const bestVideoFile = video.video_files.find((f: any) => f.quality === 'sd') || 
+                                          video.video_files.find((f: any) => f.quality === 'tiny') || 
+                                          video.video_files[0];
+                    if (bestVideoFile) {
+                        mediaUrl = bestVideoFile.link;
+                        mediaType = 'video';
+                    }
                 }
-            }
-
-            // If no video found, fallback to photo from Pexels
-            if (mediaType !== 'video') {
+                
+                // If video failed (or strictly not found), fallback to photo
+                if (mediaType !== 'video') {
+                    const photoResults = await searchPexelsPhotos(keyword, aspectRatio);
+                    if (photoResults && photoResults.length > 0) {
+                        mediaUrl = photoResults[0].src.medium;
+                        mediaType = 'image';
+                    }
+                }
+            } else {
+                // PRIORITIZE IMAGE
                 const photoResults = await searchPexelsPhotos(keyword, aspectRatio);
                 if (photoResults && photoResults.length > 0) {
-                    mediaUrl = photoResults[0].src.medium; // Use medium for faster loading
+                    mediaUrl = photoResults[0].src.medium;
                     mediaType = 'image';
                 }
             }

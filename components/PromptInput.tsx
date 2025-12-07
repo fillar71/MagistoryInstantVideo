@@ -1,8 +1,9 @@
+
 import React, { useState } from 'react';
 import { MagicWandIcon, LargePlayIcon } from './icons';
 
 interface PromptInputProps {
-  onGenerate: (prompt: string, duration: string, aspectRatio: 'landscape' | 'portrait') => void;
+  onGenerate: (prompt: string, duration: string, aspectRatio: 'landscape' | 'portrait', visualStyle: 'video' | 'image') => void;
   onManualStart: () => void;
 }
 
@@ -10,12 +11,13 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart }) 
   const [prompt, setPrompt] = useState('');
   const [duration, setDuration] = useState('1 minute');
   const [aspectRatio, setAspectRatio] = useState<'landscape' | 'portrait'>('landscape');
+  const [visualStyle, setVisualStyle] = useState<'video' | 'image'>('video');
   const [mode, setMode] = useState<'ai' | 'manual'>('ai');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (prompt.trim()) {
-      onGenerate(prompt, duration, aspectRatio);
+      onGenerate(prompt, duration, aspectRatio, visualStyle);
     }
   };
 
@@ -90,35 +92,49 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart }) 
                         placeholder="e.g., 'How to make a perfect omelette'"
                         className="flex-grow p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all"
                     />
-                    <div className="flex gap-2 flex-shrink-0">
-                         {/* Aspect Ratio Selector */}
-                        <select 
-                            value={aspectRatio}
-                            onChange={(e) => setAspectRatio((e.target as any).value)}
-                            className="p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none w-1/2 md:w-auto cursor-pointer"
-                            title="Select Video Orientation"
-                        >
-                            <option value="landscape">Landscape (16:9)</option>
-                            <option value="portrait">Portrait (9:16)</option>
-                        </select>
-
-                        {/* Duration Selector */}
-                        <select 
-                            value={duration}
-                            onChange={(e) => setDuration((e.target as any).value)}
-                            className="p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none w-1/2 md:w-40 cursor-pointer"
-                            title="Select Duration"
-                        >
-                            {durationOptions.map(opt => (
-                                <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                        </select>
-                    </div>
                 </div>
+                
+                {/* Options Row */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                    {/* Visual Style Selector */}
+                    <select 
+                        value={visualStyle}
+                        onChange={(e) => setVisualStyle((e.target as any).value)}
+                        className="p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none flex-1 cursor-pointer"
+                        title="Select Visual Style"
+                    >
+                        <option value="video">Dynamic Video Clips</option>
+                        <option value="image">Static Images Only</option>
+                    </select>
+
+                    {/* Aspect Ratio Selector */}
+                    <select 
+                        value={aspectRatio}
+                        onChange={(e) => setAspectRatio((e.target as any).value)}
+                        className="p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none flex-1 cursor-pointer"
+                        title="Select Video Orientation"
+                    >
+                        <option value="landscape">Landscape (16:9)</option>
+                        <option value="portrait">Portrait (9:16)</option>
+                    </select>
+
+                    {/* Duration Selector */}
+                    <select 
+                        value={duration}
+                        onChange={(e) => setDuration((e.target as any).value)}
+                        className="p-4 bg-gray-900 border-2 border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:outline-none flex-1 cursor-pointer"
+                        title="Select Duration"
+                    >
+                        {durationOptions.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                    </select>
+                </div>
+
                 <button
                 type="submit"
                 disabled={!prompt.trim()}
-                className="w-full sm:w-auto mx-auto px-12 py-4 bg-purple-600 text-white font-bold rounded-md hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300 shadow-lg"
+                className="w-full sm:w-auto mx-auto px-12 py-4 bg-purple-600 text-white font-bold rounded-md hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors duration-300 shadow-lg mt-2"
                 >
                 Generate Magic Video
                 </button>
