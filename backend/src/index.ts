@@ -17,8 +17,34 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
+// Increase limit for uploads
 app.use(express.json({ limit: '500mb' }));
-app.use(cors({ origin: '*' }) as any);
+
+// CORS Configuration
+// In production (Railway), allow requests from Vercel (FRONTEND_URL)
+const allowedOrigins = [
+    'http://localhost:5173', 
+    'http://localhost:3000',
+    process.env.FRONTEND_URL // Add your Vercel URL in Railway Env Vars
+].filter(Boolean);
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        
+        // In development or if FRONTEND_URL is not set, allow all (or specific)
+        if (!process.env.FRONTEND_URL || allowedOrigins.includes(origin)) {
+             return callback(null, true);
+        } else {
+            // Optional: For stricter security, un-comment next line. For now, we allow all for ease of setup.
+            // return callback(new Error('Not allowed by CORS'));
+            return callback(null, true);
+        }
+    },
+    credentials: true
+}) as any);
+
 
 const TEMP_DIR = path.join((process as any).cwd(), 'temp');
 if (!fs.existsSync(TEMP_DIR)) {
@@ -74,8 +100,6 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
             data: { credits: { decrement: cost } }
         });
 
-        // Optional: Add to CreditTransaction table history here if needed
-        
         res.json({ success: true, remainingCredits: updatedUser.credits });
     } catch (error) {
         console.error("Credit Deduct Error:", error);
@@ -84,7 +108,7 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
 });
 
 
-// --- RENDERER ROUTES (Existing) ---
+// --- RENDERER ROUTES ---
 
 // Simple in-memory job store
 const jobs = new Map<string, { status: 'processing' | 'completed' | 'error', path?: string, error?: string, createdAt: number }>();
@@ -108,10 +132,8 @@ app.post('/render', async (req, res) => {
         console.log(`Received render request: ${req.body.title}`);
         const jobId = uuidv4();
         
-        // Initialize job
         jobs.set(jobId, { status: 'processing', createdAt: Date.now() });
         
-        // Start processing in background (DO NOT AWAIT)
         renderVideo(req.body)
             .then((outputPath) => {
                 console.log(`Job ${jobId} completed: ${outputPath}`);
@@ -122,7 +144,6 @@ app.post('/render', async (req, res) => {
                 jobs.set(jobId, { status: 'error', error: err.message, createdAt: Date.now() });
             });
 
-        // Return Job ID immediately
         res.json({ jobId });
 
     } catch (error: any) {
@@ -136,7 +157,6 @@ app.get('/status/:jobId', (req, res) => {
     const jobId = req.params.jobId;
     const job = jobs.get(jobId);
     
-    // Log the check to verify polling
     console.log(`Status check for ${jobId}: ${job ? job.status : 'NOT FOUND'}`);
     
     if (!job) {
@@ -159,12 +179,15 @@ app.get('/download/:jobId', (req, res) => {
          return res.status(404).json({ error: 'File deleted from server' });
     }
     
-    // Explicitly set video header
     res.setHeader('Content-Type', 'video/mp4');
     
     res.download(job.path, `video_export.mp4`, (err) => {
         if (err) console.error("Download error:", err);
     });
+});
+
+app.get('/', (req, res) => {
+    res.send('Magistory Backend is Running. Frontend is hosted separately on Vercel.');
 });
 
 app.get('/health', (req, res) => {

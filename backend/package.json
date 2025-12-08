@@ -4,10 +4,10 @@
   "description": "Video rendering server for Magistory",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate || echo 'Prisma generate skipped (schema not found yet)'"
   },
   "dependencies": {
     "@prisma/client": "^5.10.2",

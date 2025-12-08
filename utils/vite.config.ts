@@ -9,11 +9,10 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // SECURITY FIX: Only expose specific required variables to the client bundle.
       'process.env.API_KEY': JSON.stringify(env.API_KEY || process.env.API_KEY),
       'process.env.PEXELS_API_KEY': JSON.stringify(env.PEXELS_API_KEY || process.env.PEXELS_API_KEY),
       // Backend URL configuration
-      'process.env.BACKEND_URL': JSON.stringify(env.BACKEND_URL || 'http://localhost:3001'),
+      'process.env.BACKEND_URL': JSON.stringify(env.BACKEND_URL || process.env.BACKEND_URL || 'http://localhost:3001'),
       
       'process.env': JSON.stringify({})
     },
