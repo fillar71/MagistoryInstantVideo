@@ -5,8 +5,7 @@ import { renderVideo } from './renderer';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { PrismaClient } from '@prisma/client';
-import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware } from './auth';
+import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
 
 // Handle unhandled exceptions
 (process as any).on('uncaughtException', (err: any) => {
@@ -14,31 +13,24 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 });
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
 // Increase limit for uploads
 app.use(express.json({ limit: '500mb' }));
 
 // CORS Configuration
-// In production (Railway), allow requests from Vercel (FRONTEND_URL)
 const allowedOrigins = [
     'http://localhost:5173', 
     'http://localhost:3000',
-    process.env.FRONTEND_URL // Add your Vercel URL in Railway Env Vars
+    process.env.FRONTEND_URL 
 ].filter(Boolean);
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-        
-        // In development or if FRONTEND_URL is not set, allow all (or specific)
         if (!process.env.FRONTEND_URL || allowedOrigins.includes(origin)) {
              return callback(null, true);
         } else {
-            // Optional: For stricter security, un-comment next line. For now, we allow all for ease of setup.
-            // return callback(new Error('Not allowed by CORS'));
             return callback(null, true);
         }
     },
@@ -71,7 +63,7 @@ app.post('/auth/google', async (req, res) => {
 
 app.get('/user/me', authMiddleware, async (req: any, res) => {
     try {
-        const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+        const user = await db.user.findUnique({ where: { id: req.user.id } });
         if (!user) return res.status(404).json({ error: "User not found" });
         res.json({ id: user.id, name: user.name, email: user.email, credits: user.credits });
     } catch (error) {
@@ -87,7 +79,7 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     const userId = req.user.id;
 
     try {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
+        const user = await db.user.findUnique({ where: { id: userId } });
         if (!user) return res.status(404).json({ error: "User not found" });
 
         if (user.credits < cost) {
@@ -95,7 +87,7 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
         }
 
         // Transaction: Update user & log history
-        const updatedUser = await prisma.user.update({
+        const updatedUser = await db.user.update({
             where: { id: userId },
             data: { credits: { decrement: cost } }
         });
