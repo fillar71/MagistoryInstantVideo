@@ -11,7 +11,8 @@ import AIToolsModal from './AIToolsModal';
 import ExportModal from './ExportModal';
 import VideoPreviewModal from './VideoPreviewModal';
 import { ChevronLeftIcon, ExportIcon, PlayIcon } from './icons';
-import { estimateWordTimings, getAudioDuration } from '../utils/media';
+import { estimateWordTimings, getAudioDuration, createWavBlobUrl } from '../utils/media';
+import { generateSpeechFromText } from '../services/geminiService';
 
 interface VideoEditorProps {
   initialScript: VideoScript;
@@ -41,6 +42,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   
   const [showExportModal, setShowExportModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // Generation Progress State
+  const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Refs for loop
   const requestRef = useRef<number>();
@@ -272,6 +276,67 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       }
   }
 
+  // --- BATCH GENERATION HANDLER ---
+  const handleGenerateAllNarrations = async () => {
+      const textSegments = segments.filter(s => !!s.narration_text && !s.audioUrl);
+      
+      if (textSegments.length === 0) {
+          alert("All segments with text already have audio! No new audio to generate.");
+          return;
+      }
+
+      setGenerationProgress({ current: 0, total: textSegments.length });
+      
+      // Create a copy to work on
+      const newSegments = [...segments];
+      let hasUpdates = false;
+      let completed = 0;
+      let consecutiveFailures = 0;
+
+      for (let i = 0; i < newSegments.length; i++) {
+          const seg = newSegments[i];
+          // Only process if missing audio
+          if (seg.narration_text && !seg.audioUrl) {
+             try {
+                 // ADDED DELAY: Wait 2.5 seconds between requests to avoid rate limits
+                 if (completed > 0) {
+                    await new Promise(r => setTimeout(r, 2500));
+                 }
+
+                 const base64Audio = await generateSpeechFromText(seg.narration_text);
+                 const wavUrl = createWavBlobUrl(base64Audio);
+                 const duration = await getAudioDuration(wavUrl);
+                 
+                 // CRITICAL: Update segment duration to match audio exactly
+                 newSegments[i] = {
+                     ...seg,
+                     audioUrl: wavUrl,
+                     duration: duration > 0 ? duration : seg.duration,
+                     audioVolume: 1.0 
+                 };
+                 hasUpdates = true;
+                 consecutiveFailures = 0;
+             } catch (e: any) {
+                 console.error(`Failed to generate narration for segment ${i}`, e);
+                 consecutiveFailures++;
+                 
+                 if (consecutiveFailures >= 3) {
+                     alert(`Failed after 3 attempts. Error: ${e.message || 'Unknown'}. Saving progress.`);
+                     break;
+                 }
+             } finally {
+                 completed++;
+                 setGenerationProgress({ current: completed, total: textSegments.length });
+             }
+          }
+      }
+      
+      if (hasUpdates) {
+          setSegments(newSegments);
+      }
+      setGenerationProgress(null);
+  };
+
   const handleApplyTransitionToAll = (effect: TransitionEffect | 'random') => {
       const effects: TransitionEffect[] = ['fade', 'slide', 'zoom'];
       const newSegments = segments.map(s => ({
@@ -426,6 +491,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             onUpdateAudio={handleAIToolsUpdateAudio}
             initialTab={activeAIToolTab}
             allSegments={segments}
+            onGenerateAllNarrations={handleGenerateAllNarrations} // PASSED CORRECTLY NOW
+            generationProgress={generationProgress} // PASSED CORRECTLY NOW
         />
 
         <ExportModal 
