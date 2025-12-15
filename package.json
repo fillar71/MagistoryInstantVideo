@@ -1,3 +1,4 @@
+
 {
   "name": "magistory-instant-video",
   "private": true,
@@ -6,11 +7,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:backend": "prisma generate --schema=./backend/prisma/schema.prisma && tsc -p backend/tsconfig.json",
-    "start": "node backend/dist/index.js",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "postinstall": "prisma generate --schema=./backend/prisma/schema.prisma || echo 'Prisma generate skipped (optional for frontend)'"
+    
+    "postinstall": "echo 'Run npm install in services/api-server and services/render-server manually if needed'",
+
+    "dev:api": "cd services/api-server && npm run dev",
+    "dev:render": "cd services/render-server && npm run dev",
+    "start:api": "cd services/api-server && npm start",
+    "start:render": "cd services/render-server && npm start",
+    "build:api": "cd services/api-server && npm run build",
+    "build:render": "cd services/render-server && npm run build"
   },
   "dependencies": {
     "@google/genai": "*",

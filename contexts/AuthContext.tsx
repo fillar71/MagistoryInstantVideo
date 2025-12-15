@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -25,7 +26,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
     const [isLoading, setIsLoading] = useState(true);
 
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
+    // Use API_URL for Auth and Credits
+    const apiUrl = process.env.API_URL || 'http://localhost:3001';
 
     useEffect(() => {
         if (token) {
@@ -37,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const refreshUser = async () => {
         try {
-            const res = await axios.get(`${backendUrl}/user/me`, {
+            const res = await axios.get(`${apiUrl}/user/me`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             setUser(res.data);
@@ -51,7 +53,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const login = async (googleToken: string) => {
         try {
-            const res = await axios.post(`${backendUrl}/auth/google`, { token: googleToken });
+            const res = await axios.post(`${apiUrl}/auth/google`, { token: googleToken });
             const { token: sessionToken, user: userData } = res.data;
             
             localStorage.setItem('auth_token', sessionToken);
@@ -73,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!user || !token) return false;
         
         try {
-            const res = await axios.post(`${backendUrl}/credits/deduct`, 
+            const res = await axios.post(`${apiUrl}/credits/deduct`, 
                 { cost, action },
                 { headers: { Authorization: `Bearer ${token}` } }
             );

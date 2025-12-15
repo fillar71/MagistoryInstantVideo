@@ -52,6 +52,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   // Generation Progress State
   const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number } | null>(null);
+  
+  // Ref to control stopping the generation loop
+  const stopGenerationRef = useRef(false);
 
   // Refs for loop
   const requestRef = useRef<number>();
@@ -313,6 +316,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   // --- ROBUST SEQUENTIAL GENERATION HANDLER ---
   const handleGenerateAllNarrations = async () => {
+      // Logic automatically detects segments without audioUrl.
+      // If a process was cancelled and restarted, it will only pick up the remaining ones.
       const indicesToProcess = segments
           .map((s, i) => (s.narration_text && !s.audioUrl ? i : -1))
           .filter(i => i !== -1);
@@ -323,6 +328,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       }
 
       setGenerationProgress({ current: 0, total: indicesToProcess.length });
+      stopGenerationRef.current = false; // Reset stop flag
       
       // We must mutate and save incrementally to ensure work isn't lost if the browser throttles
       let completedCount = 0;
@@ -336,11 +342,20 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       let currentSegmentsState = [...segments];
 
       for (const idx of indicesToProcess) {
+          // Check cancellation flag at start of iteration
+          if (stopGenerationRef.current) {
+              console.log("Generation cancelled by user.");
+              setGenerationProgress(null); // Clear progress bar
+              break;
+          }
+
           const seg = currentSegmentsState[idx];
           let success = false;
           let retries = 0;
 
           while (!success && retries < 3) {
+              if (stopGenerationRef.current) break; // Check cancel inside retry loop too
+
               try {
                   // Generate
                   const base64Audio = await generateSpeechFromText(seg.narration_text);
@@ -374,16 +389,22 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
               }
           }
 
-          if (!success) {
+          if (!success && !stopGenerationRef.current) {
               console.error(`Skipping segment ${idx} after 3 retries.`);
           }
 
-          completedCount++;
-          setGenerationProgress({ current: completedCount, total });
+          if (!stopGenerationRef.current) {
+              completedCount++;
+              setGenerationProgress({ current: completedCount, total });
+          }
       }
       
       setGenerationProgress(null);
   };
+
+  const handleCancelGeneration = () => {
+      stopGenerationRef.current = true;
+  }
 
   const handleApplyTransitionToAll = (effect: TransitionEffect | 'random') => {
       const effects: TransitionEffect[] = ['fade', 'slide', 'zoom'];
@@ -544,6 +565,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             allSegments={segments}
             onGenerateAllNarrations={handleGenerateAllNarrations} // Updated for robust sequential processing
             generationProgress={generationProgress}
+            onCancelGeneration={handleCancelGeneration}
         />
 
         <ExportModal 

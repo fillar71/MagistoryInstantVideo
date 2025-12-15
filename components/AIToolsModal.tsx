@@ -25,10 +25,11 @@ interface AIToolsModalProps {
   initialTab?: AIToolTab;
   onGenerateAllNarrations?: () => Promise<void>;
   generationProgress?: { current: number; total: number } | null;
+  onCancelGeneration?: () => void; // New prop for canceling
   allSegments?: Segment[]; // New Prop to count missing items
 }
 
-const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio, initialTab = 'edit-image', onGenerateAllNarrations, generationProgress, allSegments }) => {
+const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio, initialTab = 'edit-image', onGenerateAllNarrations, generationProgress, onCancelGeneration, allSegments }) => {
   const [activeTab, setActiveTab] = useState<AIToolTab>(initialTab);
 
   useEffect(() => {
@@ -63,7 +64,7 @@ const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, a
           {activeTab === 'generate-image' && <GenerateImageTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'edit-image' && <EditImageTab mediaUrl={activeClip.url} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'generate-video' && <GenerateVideoTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
-          {activeTab === 'tts' && <TextToSpeechTab segment={segment} onUpdateAudio={onUpdateAudio} onGenerateAllNarrations={onGenerateAllNarrations} generationProgress={generationProgress} allSegments={allSegments} />}
+          {activeTab === 'tts' && <TextToSpeechTab segment={segment} onUpdateAudio={onUpdateAudio} onGenerateAllNarrations={onGenerateAllNarrations} generationProgress={generationProgress} onCancelGeneration={onCancelGeneration} allSegments={allSegments} />}
           {activeTab === 'generate-sfx' && <GenerateSFXTab segment={segment} onUpdateAudio={onUpdateAudio} onClose={onClose} />}
         </div>
       </div>
@@ -230,7 +231,7 @@ const GenerateVideoTab: React.FC<{ segment: Segment; onUpdateMedia: (url: string
 };
 
 // --- Text to Speech Tab ---
-const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string, duration?: number) => void; onGenerateAllNarrations?: () => Promise<void>; generationProgress?: { current: number; total: number } | null; allSegments?: Segment[] }> = ({ segment, onUpdateAudio, onGenerateAllNarrations, generationProgress, allSegments }) => {
+const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string, duration?: number) => void; onGenerateAllNarrations?: () => Promise<void>; generationProgress?: { current: number; total: number } | null; onCancelGeneration?: () => void; allSegments?: Segment[] }> = ({ segment, onUpdateAudio, onGenerateAllNarrations, generationProgress, onCancelGeneration, allSegments }) => {
     const { deductCredits } = useAuth();
     const [isLoading, setIsLoading] = useState(false);
     const [audioSrc, setAudioSrc] = useState<string | null>(segment.audioUrl || null);
@@ -307,13 +308,21 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string,
                                 <span className="text-purple-300 animate-pulse">Generating Scenes...</span>
                                 <span className="text-white">{generationProgress.current} / {generationProgress.total}</span>
                             </div>
-                            <div className="w-full bg-gray-700 h-2.5 rounded-full overflow-hidden">
+                            <div className="w-full bg-gray-700 h-2.5 rounded-full overflow-hidden mb-3">
                                 <div 
                                     className="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-300 ease-out" 
                                     style={{ width: `${(generationProgress.current / generationProgress.total) * 100}%` }}
                                 />
                             </div>
-                            <p className="text-[10px] text-gray-500 mt-2 text-center">Please wait while we create audio for all segments.</p>
+                            <div className="flex items-center justify-between">
+                                <p className="text-[10px] text-gray-500">Processing queue...</p>
+                                <button 
+                                    onClick={onCancelGeneration}
+                                    className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded shadow-sm transition-colors z-20"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ) : (

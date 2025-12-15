@@ -16,8 +16,8 @@ interface ExportModalProps {
 type ExportStatus = 'idle' | 'preparing' | 'sending' | 'rendering' | 'complete' | 'error';
 type ExportQuality = '360p' | '720p' | '1080p';
 
-// Default from env
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3001';
+// Use RENDER_URL for heavy video processing
+const RENDER_URL = process.env.RENDER_URL || 'http://localhost:3002';
 
 const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segments, audioTracks = [] }) => {
     const [status, setStatus] = useState<ExportStatus>('idle');
@@ -115,7 +115,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
         if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
 
         // Remove trailing slash if present
-        const sanitizedUrl = BACKEND_URL.replace(/\/$/, '');
+        const sanitizedUrl = RENDER_URL.replace(/\/$/, '');
 
         try {
             const payload = await preparePayload();
