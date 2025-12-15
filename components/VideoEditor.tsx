@@ -10,9 +10,11 @@ import ResourcePanel from './ResourcePanel';
 import AIToolsModal from './AIToolsModal';
 import ExportModal from './ExportModal';
 import VideoPreviewModal from './VideoPreviewModal';
-import { ChevronLeftIcon, ExportIcon, PlayIcon } from './icons';
+import { ChevronLeftIcon, ExportIcon, PlayIcon, SaveIcon } from './icons';
 import { estimateWordTimings, getAudioDuration, createWavBlobUrl } from '../utils/media';
 import { generateSpeechFromText } from '../services/geminiService';
+import { saveProject } from '../services/projectService';
+import LoadingSpinner from './LoadingSpinner';
 
 interface VideoEditorProps {
   initialScript: VideoScript;
@@ -20,6 +22,8 @@ interface VideoEditorProps {
 
 const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   // --- STATE ---
+  // Ensure we capture ID if it exists (for overwriting saved projects)
+  const [projectId, setProjectId] = useState(initialScript.id);
   const [segments, setSegments] = useState<Segment[]>(initialScript.segments);
   const [audioTracks, setAudioTracks] = useState<AudioClip[]>(initialScript.audioTracks || []);
   const [title, setTitle] = useState(initialScript.title);
@@ -42,6 +46,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   
   const [showExportModal, setShowExportModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // Saving State
+  const [isSaving, setIsSaving] = useState(false);
 
   // Generation Progress State
   const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number } | null>(null);
@@ -93,6 +100,34 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const handlePlayPause = () => {
       setIsPlaying(!isPlaying);
   };
+
+  // --- SAVE PROJECT ---
+  const handleSaveProject = () => {
+      setIsSaving(true);
+      try {
+          const projectData: VideoScript = {
+              id: projectId, // Maintain ID to overwrite
+              title,
+              segments,
+              audioTracks,
+              backgroundMusicKeywords: initialScript.backgroundMusicKeywords
+          };
+          const saved = saveProject(projectData);
+          setProjectId(saved.id); // Update ID if it was new
+          
+          // Show toast or alert
+          const toast = document.createElement('div');
+          toast.className = 'fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-[100] animate-fade-in-up';
+          toast.textContent = 'Project Saved Successfully';
+          document.body.appendChild(toast);
+          setTimeout(() => toast.remove(), 2000);
+
+      } catch (e) {
+          alert("Failed to save project. Browser storage might be full.");
+      } finally {
+          setIsSaving(false);
+      }
+  }
 
   // --- SEGMENT MANIPULATION ---
   const handleUpdateSegment = (id: string, updates: Partial<Segment>) => {
@@ -419,6 +454,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                         )}
                         {/* Header Actions Overlay */}
                         <div className="absolute top-4 right-4 flex gap-2">
+                             <button onClick={handleSaveProject} disabled={isSaving} className="bg-gray-800/80 hover:bg-green-700 text-white p-2 rounded-full backdrop-blur-sm transition-colors flex items-center justify-center" title="Save Project">
+                                 {isSaving ? <LoadingSpinner /> : <SaveIcon className="w-5 h-5" />}
+                             </button>
                              <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm" title="Fullscreen Preview">
                                  <PlayIcon className="w-5 h-5" />
                              </button>

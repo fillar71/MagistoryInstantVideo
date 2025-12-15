@@ -1,5 +1,4 @@
 
-
 export type TransitionEffect = 'fade' | 'slide' | 'zoom';
 export type TextAnimation = 'none' | 'scale' | 'slide-up' | 'highlight';
 export type AIToolTab = 'generate-image' | 'edit-image' | 'generate-video' | 'tts' | 'generate-sfx';
@@ -50,8 +49,15 @@ export interface AudioClip {
 }
 
 export interface VideoScript {
+  id?: string; // Optional ID for saving
   title: string;
   backgroundMusicKeywords?: string;
   segments: Segment[];
   audioTracks?: AudioClip[]; // New global audio tracks
+}
+
+export interface SavedProject extends VideoScript {
+    id: string;
+    lastModified: number;
+    thumbnail?: string;
 }

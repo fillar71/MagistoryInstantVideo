@@ -24,21 +24,23 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
   try {
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: `Create a video script about "${topic}". The total duration of the video MUST be approximately "${requestedDuration}".
+        contents: `Act as a professional Video Editor and Stock Footage Researcher. Create a video script about "${topic}". The total duration MUST be approximately "${requestedDuration}".
         
-        CRITICAL INSTRUCTION FOR SEGMENTATION:
-        1. **1 Visual Keyword = 1 Segment**: You MUST create a separate segment for EVERY distinct visual subject.
-        2. **Split Narration Exactly**: Break the narration text so it aligns perfectly with the visual.
-        3. **Visual Search Phrase (MOST IMPORTANT)**: The 'search_keywords_for_media' must be a CONCRETE, LITERAL description of a stock video clip.
-           - DO NOT use abstract concepts (e.g., "Success", "History", "Thoughts").
-           - DO NOT use complex scenes (e.g., "George Washington signing the declaration in a room").
-           - DO USE simple stock terms: "Business meeting", "Hiker on mountain", "Writing with quill pen", "Storm clouds", "Chef cooking".
-           - Think: "What would I type into Pexels or Shutterstock to find this exact shot?"
-        4. **No Generic Segments**: Every segment must have a specific visual focus matching the narration.
-        5. **Music Theme**: Suggest "background_music_keywords" (3-5 words) that describe the perfect background track. Include Genre, Mood, and Tempo. Use Pixabay-friendly terms.
-        6. **Sound Effects**: For segments that depict specific actions or environments, provide "sfx_keywords".
+        CRITICAL INSTRUCTIONS FOR MEDIA SELECTION (Relevance is Key):
+        1. **1 Visual Keyword = 1 Segment**: Create a separate segment for every distinct visual change.
+        2. **Visual Search Phrase (MOST IMPORTANT)**: The 'search_keywords_for_media' MUST be a specific search query optimized for Pexels/Shutterstock.
+           - **RULE**: Use the formula "Subject + Action + Setting + Style".
+           - **FORBIDDEN**: Abstract nouns (e.g., "Success", "History", "Knowledge", "Freedom", "Chaos"). Stock engines cannot understand these.
+           - **REQUIRED**: Concrete, visible physical objects or people.
+           - **Example (Bad)**: "Ancient history" -> **Example (Good)**: "Ancient roman colosseum drone shot sunny".
+           - **Example (Bad)**: "Business growth" -> **Example (Good)**: "Business people shaking hands modern office".
+           - **Example (Bad)**: "Thinking" -> **Example (Good)**: "Close up eye looking at computer screen reflection".
+           - If the narration mentions a specific object (e.g., "Pizza"), the media MUST be that object ("Pepperoni pizza slice cheese pull").
+        3. **Split Narration**: Break text so it aligns perfectly with the visual change.
+        4. **Music Theme**: Suggest "background_music_keywords" (Genre + Mood + Instrument).
+        5. **Sound Effects**: Provide specific "sfx_keywords" for actions (e.g. 'camera shutter', 'pouring water').
         
-        The goal is a fast-paced, visually accurate video where the image changes exactly when the subject in the narration changes.`,
+        Generate a fast-paced, visually accurate script.`,
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -64,7 +66,7 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
                                 },
                                 search_keywords_for_media: { 
                                     type: Type.STRING,
-                                    description: "A specific 2-3 word search phrase for stock footage (Concrete Noun + Action)."
+                                    description: "A highly specific 3-5 word search phrase. Must be a visual description of a scene."
                                 },
                                 duration: {
                                     type: Type.INTEGER,
@@ -264,7 +266,7 @@ export async function suggestMediaKeywords(narrationText: string, videoContext?:
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: `You are a Stock Footage Search Engine Expert.
+      contents: `You are a Stock Footage Search Query Expert.
       
       Task: Convert the following narration text into highly effective search queries for Pexels/Pixabay/Shutterstock.
       ${contextPrompt}
@@ -272,8 +274,9 @@ export async function suggestMediaKeywords(narrationText: string, videoContext?:
       
       Instructions:
       1. IGNORE abstract concepts (e.g., "journey", "success", "future").
-      2. EXTRACT concrete, visual subjects and actions.
-      3. Format output as a comma-separated list of 3 DISTINCT search phrases.
+      2. EXTRACT concrete, visual subjects and actions that literally appear on screen.
+      3. Use "Subject + Action + Context" format.
+      4. Format output as a comma-separated list of 3 DISTINCT search phrases.
       
       Examples:
       - Narration: "Our company is reaching new heights." -> Output: Hiker on mountain top, Modern skyscraper looking up, Business team high five

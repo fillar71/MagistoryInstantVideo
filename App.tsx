@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { VideoScript } from './types';
+import { VideoScript, SavedProject } from './types';
 import PromptInput from './components/PromptInput';
 import VideoEditor from './components/VideoEditor';
 import LandingPage from './components/LandingPage';
 import PricingSection from './components/PricingSection';
 import LoginModal from './components/LoginModal';
+import ProjectManagerModal from './components/ProjectManagerModal';
 import { generateVideoScript } from './services/geminiService';
 import LoadingSpinner from './components/LoadingSpinner';
 import { useAuth } from './contexts/AuthContext';
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   
   const { user, deductCredits, isLoading: isAuthLoading } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
 
   // Auto-close modal and redirect when user is detected
   useEffect(() => {
@@ -106,6 +108,12 @@ const App: React.FC = () => {
     setView('editor');
     setError(null);
   };
+
+  const handleLoadProject = (project: SavedProject) => {
+      setVideoScript(project);
+      setView('editor');
+      setShowProjectModal(false);
+  }
   
   const handleBackToStart = () => {
     setVideoScript(null);
@@ -203,7 +211,11 @@ const App: React.FC = () => {
                         <div className="mb-8">
                              <button onClick={handleGoHome} className="text-gray-500 hover:text-white mb-4 flex items-center gap-1 text-sm">&larr; Back to Home</button>
                         </div>
-                        <PromptInput onGenerate={handleGenerateScript} onManualStart={handleManualStart} />
+                        <PromptInput 
+                            onGenerate={handleGenerateScript} 
+                            onManualStart={handleManualStart} 
+                            onOpenProjects={() => setShowProjectModal(true)}
+                        />
                         
                         {error && (
                             <div className="mt-8 p-4 bg-red-900/20 border border-red-500/50 rounded-lg text-center animate-fade-in">
@@ -232,6 +244,12 @@ const App: React.FC = () => {
         isOpen={showLoginModal} 
         onClose={() => setShowLoginModal(false)} 
         message={!user ? "Sign in to get your 10 FREE credits!" : undefined}
+      />
+
+      <ProjectManagerModal 
+        isOpen={showProjectModal}
+        onClose={() => setShowProjectModal(false)}
+        onLoadProject={handleLoadProject}
       />
     </div>
   );

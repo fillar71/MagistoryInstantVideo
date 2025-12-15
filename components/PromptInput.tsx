@@ -1,13 +1,14 @@
 
 import React, { useState } from 'react';
-import { MagicWandIcon, LargePlayIcon } from './icons';
+import { MagicWandIcon, LargePlayIcon, FolderIcon } from './icons';
 
 interface PromptInputProps {
   onGenerate: (prompt: string, duration: string, aspectRatio: 'landscape' | 'portrait', visualStyle: 'video' | 'image') => void;
   onManualStart: () => void;
+  onOpenProjects: () => void;
 }
 
-const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart }) => {
+const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart, onOpenProjects }) => {
   const [prompt, setPrompt] = useState('');
   const [duration, setDuration] = useState('1 minute');
   const [aspectRatio, setAspectRatio] = useState<'landscape' | 'portrait'>('landscape');
@@ -48,7 +49,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart }) 
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {/* AI Mode Card */}
         <div 
             onClick={() => setMode('ai')}
@@ -77,6 +78,20 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart }) 
             <div>
                 <h3 className="text-xl font-bold text-white mb-2">Manual Editor</h3>
                 <p className="text-sm text-gray-400">Start from scratch. Upload your own videos, images, and audio to build your story timeline.</p>
+            </div>
+        </div>
+        
+        {/* Load Project Card */}
+        <div 
+            onClick={onOpenProjects}
+            className="p-6 rounded-xl border-2 border-gray-700 bg-gray-800/40 hover:border-green-500 hover:bg-gray-800/60 cursor-pointer transition-all duration-300 flex flex-col items-center text-center gap-4 group"
+        >
+            <div className="p-4 rounded-full bg-gray-700 text-gray-400 group-hover:bg-green-600 group-hover:text-white transition-colors">
+                <FolderIcon className="w-8 h-8" />
+            </div>
+            <div>
+                <h3 className="text-xl font-bold text-white mb-2">My Projects</h3>
+                <p className="text-sm text-gray-400">Load a previously saved project and continue where you left off.</p>
             </div>
         </div>
       </div>
