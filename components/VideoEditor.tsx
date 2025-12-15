@@ -15,6 +15,7 @@ import { estimateWordTimings, getAudioDuration, createWavBlobUrl } from '../util
 import { generateSpeechFromText } from '../services/geminiService';
 import { saveProject } from '../services/projectService';
 import LoadingSpinner from './LoadingSpinner';
+import { useAuth } from '../contexts/AuthContext';
 
 interface VideoEditorProps {
   initialScript: VideoScript;
@@ -55,6 +56,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   
   // Ref to control stopping the generation loop
   const stopGenerationRef = useRef(false);
+
+  // Auth for Credit Deduction
+  const { deductCredits } = useAuth();
 
   // Refs for loop
   const requestRef = useRef<number>();
@@ -316,86 +320,68 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   // --- ROBUST SEQUENTIAL GENERATION HANDLER ---
   const handleGenerateAllNarrations = async () => {
-      // Logic automatically detects segments without audioUrl.
-      // If a process was cancelled and restarted, it will only pick up the remaining ones.
+      // 1. Identify work
       const indicesToProcess = segments
           .map((s, i) => (s.narration_text && !s.audioUrl ? i : -1))
           .filter(i => i !== -1);
       
-      if (indicesToProcess.length === 0) {
+      const totalCount = indicesToProcess.length;
+
+      if (totalCount === 0) {
           alert("All segments with text already have audio! No new audio to generate.");
           return;
       }
 
-      setGenerationProgress({ current: 0, total: indicesToProcess.length });
-      stopGenerationRef.current = false; // Reset stop flag
+      // 2. Billing: Deduct credits (1 credit per clip for bulk)
+      const cost = totalCount * 1; 
+      const proceed = await deductCredits(cost, 'bulk_tts');
+      if (!proceed) return;
+
+      // 3. Initialize Progress
+      setGenerationProgress({ current: 0, total: totalCount });
+      stopGenerationRef.current = false;
       
-      // We must mutate and save incrementally to ensure work isn't lost if the browser throttles
       let completedCount = 0;
-      const total = indicesToProcess.length;
-
-      // Helper for delay to avoid rate limits (RPM)
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-      // We clone segments initially to have a working copy
-      // But inside the loop, we will constantly update the React State
       let currentSegmentsState = [...segments];
 
+      // 4. Process Loop
       for (const idx of indicesToProcess) {
-          // Check cancellation flag at start of iteration
           if (stopGenerationRef.current) {
               console.log("Generation cancelled by user.");
-              setGenerationProgress(null); // Clear progress bar
               break;
           }
 
           const seg = currentSegmentsState[idx];
-          let success = false;
-          let retries = 0;
+          
+          try {
+              // Generate - geminiService already handles reasonable retries
+              const base64Audio = await generateSpeechFromText(seg.narration_text);
+              const wavUrl = createWavBlobUrl(base64Audio);
+              const duration = await getAudioDuration(wavUrl);
+              
+              // Update state immediately
+              currentSegmentsState[idx] = {
+                  ...seg,
+                  audioUrl: wavUrl,
+                  duration: duration > 0 ? duration : seg.duration,
+                  audioVolume: 1.0,
+                  wordTimings: estimateWordTimings(seg.narration_text, duration > 0 ? duration : seg.duration)
+              };
 
-          while (!success && retries < 3) {
-              if (stopGenerationRef.current) break; // Check cancel inside retry loop too
-
-              try {
-                  // Generate
-                  const base64Audio = await generateSpeechFromText(seg.narration_text);
-                  const wavUrl = createWavBlobUrl(base64Audio);
-                  const duration = await getAudioDuration(wavUrl);
-                  
-                  // Update specific segment in our working array
-                  currentSegmentsState[idx] = {
-                      ...seg,
-                      audioUrl: wavUrl,
-                      duration: duration > 0 ? duration : seg.duration,
-                      audioVolume: 1.0,
-                      wordTimings: estimateWordTimings(seg.narration_text, duration > 0 ? duration : seg.duration)
-                  };
-
-                  success = true;
-                  
-                  // INCREMENTAL SAVE: Update React state immediately after EACH success.
-                  // This is critical for long processes. If user stops or browser freezes, progress is kept.
-                  setSegments([...currentSegmentsState]);
-
-                  // Safety delay: 1.5 seconds between requests ~ 40 requests/min max.
-                  // If loop is fast, we hit limits.
-                  await delay(1500);
-
-              } catch (e: any) {
-                  console.warn(`Failed to generate audio for segment ${idx}, retry ${retries + 1}`, e);
-                  retries++;
-                  // Exponential backoff for retries: 4s, 8s, 12s
-                  await delay(4000 * retries); 
-              }
-          }
-
-          if (!success && !stopGenerationRef.current) {
-              console.error(`Skipping segment ${idx} after 3 retries.`);
-          }
-
-          if (!stopGenerationRef.current) {
+              // Commit to UI
+              setSegments([...currentSegmentsState]);
+              
+              // Increment Progress
               completedCount++;
-              setGenerationProgress({ current: completedCount, total });
+              setGenerationProgress({ current: completedCount, total: totalCount });
+
+              // Small delay to prevent UI freeze and allow cancellation check
+              await new Promise(r => setTimeout(r, 500));
+
+          } catch (e: any) {
+              console.error(`Failed to generate audio for segment ${idx}:`, e);
+              // In bulk mode, we skip failed items and continue to the next
+              // Maybe add a toast notification here later
           }
       }
       

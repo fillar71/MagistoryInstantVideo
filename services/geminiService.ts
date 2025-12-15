@@ -405,9 +405,9 @@ export async function generateSpeechFromText(text: string): Promise<string> {
     const ai = getAI();
     let lastError: any;
     
-    // Increased retry count to 5 and added aggressive exponential backoff
-    // to handle rate limiting for long video generation tasks.
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // Retry count reduced to 3. Removed aggressive backoff to improve perceived speed.
+    // If it fails 3 times with ~5s total wait, it's better to fail than hang the UI for 1 min.
+    for (let attempt = 0; attempt < 3; attempt++) {
         try {
             const response = await ai.models.generateContent({
                 model: "gemini-2.5-flash-preview-tts",
@@ -430,15 +430,17 @@ export async function generateSpeechFromText(text: string): Promise<string> {
             console.warn(`TTS Attempt ${attempt + 1} failed:`, error);
             lastError = error;
             
-            // Check for quota/rate limit errors specifically if possible, 
-            // but generally applying exponential backoff helps all transient errors.
-            // Wait: 2s, 4s, 8s, 16s...
-            const delay = Math.pow(2, attempt + 1) * 1000;
-            console.log(`Waiting ${delay}ms before retry...`);
-            await new Promise(r => setTimeout(r, delay));
+            // Fail fast on fatal errors (Bad Request, Unauthorized, Forbidden)
+            if (error.status === 400 || error.status === 401 || error.status === 403) {
+                 throw error;
+            }
+            
+            // Reduced backoff: 1s, 2s, 3s
+            const delay = (attempt + 1) * 1000;
+            if (attempt < 2) await new Promise(r => setTimeout(r, delay));
         }
     }
     
     console.error('Final error generating speech:', lastError);
-    throw new Error('Failed to generate speech from text. Please try again later.');
+    throw new Error(lastError.message || 'Failed to generate speech. Please check your text.');
 }
