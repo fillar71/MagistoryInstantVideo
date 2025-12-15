@@ -3,13 +3,24 @@ import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
 
-// Handle unhandled exceptions
+// Handle unhandled exceptions to prevent hard crashes without logs
 (process as any).on('uncaughtException', (err: any) => {
     console.error('UNCAUGHT EXCEPTION:', err);
 });
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+
+// CRITICAL: Railway assigns a random port in process.env.PORT. 
+// We must listen on that specific port, otherwise the health check fails and the container crashes.
+const PORT = process.env.PORT || 3001;
+
+// Log startup info for debugging
+console.log("--------------------------------------------------");
+console.log("Starting Magistory API Server...");
+console.log(`Detected PORT env var: ${process.env.PORT}`);
+console.log(`Using PORT: ${PORT}`);
+console.log(`DATABASE_URL Set: ${!!process.env.DATABASE_URL}`);
+console.log("--------------------------------------------------");
 
 // --- CONFIGURATION ---
 // Comma-separated list of admin emails who get unlimited credits
@@ -27,6 +38,16 @@ app.use(cors({
     },
     credentials: true
 }) as any);
+
+// --- HEALTH CHECK (Required for Railway) ---
+// Railway pings / or /health to verify the app is up.
+app.get('/', (req, res) => {
+    res.status(200).send('Magistory API Server is Running.');
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
 
 // --- AUTH ROUTES ---
 
@@ -104,16 +125,9 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-app.get('/', (req, res) => {
-    res.send('Magistory API Server is Running.');
-});
-
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`API Server running on port ${PORT}`);
+// LISTEN ON 0.0.0.0 (Required for Docker/Railway)
+app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`API Server successfully started on port ${PORT}`);
     
     if (!process.env.GOOGLE_CLIENT_ID) {
         console.warn("WARNING: GOOGLE_CLIENT_ID is not set. Google Login will fail.");

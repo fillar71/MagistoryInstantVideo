@@ -12,7 +12,13 @@ import { v4 as uuidv4 } from 'uuid';
 });
 
 const app = express();
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
+// Priority: Environment Variable > 3002
+const PORT = process.env.PORT || 3002;
+
+console.log("--------------------------------------------------");
+console.log("Starting Magistory Render Server...");
+console.log(`Using PORT: ${PORT}`);
+console.log("--------------------------------------------------");
 
 // Increase limit for uploads (large video payloads)
 app.use(express.json({ limit: '500mb' }) as any);
@@ -32,6 +38,15 @@ const TEMP_DIR = path.join((process as any).cwd(), 'temp');
 if (!fs.existsSync(TEMP_DIR)) {
     fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
+
+// --- HEALTH CHECK ---
+app.get('/', (req, res) => {
+    res.status(200).send('Magistory Render Server is Running.');
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
 
 // --- RENDERER ROUTES ---
 
@@ -109,14 +124,6 @@ app.get('/download/:jobId', (req, res) => {
     });
 });
 
-app.get('/', (req, res) => {
-    res.send('Magistory Render Server is Running.');
-});
-
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Render server running on port ${PORT}`);
 });
