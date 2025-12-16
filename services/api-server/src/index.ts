@@ -5,26 +5,13 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 
 // Handle unhandled exceptions to prevent hard crashes without logs
 (process as any).on('uncaughtException', (err: any) => {
-    console.error('UNCAUGHT EXCEPTION:', err);
+    console.error('CRITICAL UNCAUGHT EXCEPTION:', err);
 });
 
 const app = express();
 
 // CRITICAL: Railway assigns a random port in process.env.PORT. 
-// We must listen on that specific port, otherwise the health check fails and the container crashes.
-const PORT = process.env.PORT || 3001;
-
-// Log startup info for debugging
-console.log("--------------------------------------------------");
-console.log("Starting Magistory API Server...");
-console.log(`Detected PORT env var: ${process.env.PORT}`);
-console.log(`Using PORT: ${PORT}`);
-console.log(`DATABASE_URL Set: ${!!process.env.DATABASE_URL}`);
-console.log("--------------------------------------------------");
-
-// --- CONFIGURATION ---
-// Comma-separated list of admin emails who get unlimited credits
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase());
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
 // Increase limit for uploads
 app.use(express.json({ limit: '5mb' }) as any);
@@ -33,14 +20,12 @@ app.use(express.json({ limit: '5mb' }) as any);
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        // Allow all origins for simplicity in demo/dev
         return callback(null, true);
     },
     credentials: true
 }) as any);
 
 // --- HEALTH CHECK (Required for Railway) ---
-// Railway pings / or /health to verify the app is up.
 app.get('/', (req, res) => {
     res.status(200).send('Magistory API Server is Running.');
 });
@@ -50,22 +35,32 @@ app.get('/health', (req, res) => {
 });
 
 // --- AUTH ROUTES ---
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase());
 
 app.post('/auth/google', async (req, res) => {
     const { token } = req.body;
+    
+    // Debugging log for auth attempts
+    console.log("Auth attempt received.");
+
+    if (!process.env.GOOGLE_CLIENT_ID) {
+        console.error("LOGIN FAILED: GOOGLE_CLIENT_ID is missing in server environment variables.");
+        return res.status(500).json({ error: "Server misconfiguration: Missing Google Client ID." });
+    }
+
     try {
         const payload = await verifyGoogleToken(token);
-        if (!payload || !payload.email) throw new Error("Invalid Google Token");
+        if (!payload || !payload.email) throw new Error("Invalid Google Token payload");
 
         const user = await findOrCreateUser(payload.email, payload.name || 'User', payload.sub);
         const sessionToken = generateSessionToken(user);
 
-        // Check for admin status to return display credits
         let displayCredits = user.credits;
         if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
             displayCredits = 999999;
         }
 
+        console.log(`User logged in: ${user.email}`);
         res.json({ token: sessionToken, user: { id: user.id, name: user.name, email: user.email, credits: displayCredits } });
     } catch (error: any) {
         console.error("Auth Error:", error.message);
@@ -78,7 +73,6 @@ app.get('/user/me', authMiddleware, async (req: any, res) => {
         const user = await db.user.findUnique({ where: { id: req.user.id } });
         if (!user) return res.status(404).json({ error: "User not found" });
 
-        // Override credits for display if admin
         let displayCredits = user.credits;
         if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
             displayCredits = 999999;
@@ -92,17 +86,14 @@ app.get('/user/me', authMiddleware, async (req: any, res) => {
 });
 
 // --- CREDIT SYSTEM ROUTES ---
-
-// Deduct credits for an action
 app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
-    const { action, cost, details } = req.body;
+    const { action, cost } = req.body;
     const userId = req.user.id;
 
     try {
         const user = await db.user.findUnique({ where: { id: userId } });
         if (!user) return res.status(404).json({ error: "User not found" });
 
-        // ADMIN BYPASS LOGIC
         if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
             console.log(`Admin action by ${user.email}: ${action} (Cost bypassed)`);
             return res.json({ success: true, remainingCredits: 999999 });
@@ -112,7 +103,6 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
             return res.status(403).json({ error: "Insufficient credits", currentCredits: user.credits });
         }
 
-        // Transaction: Update user & log history
         const updatedUser = await db.user.update({
             where: { id: userId },
             data: { credits: { decrement: cost } }
@@ -125,11 +115,30 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-// LISTEN ON 0.0.0.0 (Required for Docker/Railway)
-app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`API Server successfully started on port ${PORT}`);
+// Start Server
+app.listen(PORT, '0.0.0.0', () => {
+    console.log("==================================================");
+    console.log(`✅ API Server successfully started on port ${PORT}`);
+    console.log("==================================================");
     
+    // Config Checks
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.warn("WARNING: GOOGLE_CLIENT_ID is not set. Google Login will fail.");
+        console.error("❌ CRITICAL WARNING: GOOGLE_CLIENT_ID is not set in Railway variables.");
+        console.error("   Google Login will FAIL (return 500) until this is set.");
+    } else {
+        console.log("✅ Google Auth: Configured");
+    }
+
+    if (!process.env.DATABASE_URL) {
+        console.log("⚠️  NOTICE: DATABASE_URL is not set.");
+        console.log("   App is running in LOCAL JSON MODE. Data will reset on redeploy.");
+    } else {
+        console.log("✅ Database: Connected");
+    }
+
+    if (PORT === 3001 && process.env.RAILWAY_STATIC_URL) {
+        console.log("⚠️  WARNING: Running on default port 3001 in Railway environment.");
+        console.log("   If the Health Check fails, remove the 'PORT' variable from Railway settings");
+        console.log("   to let Railway assign a dynamic port automatically.");
     }
 });

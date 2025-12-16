@@ -13,12 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const app = express();
 // Priority: Environment Variable > 3002
-const PORT = process.env.PORT || 3002;
-
-console.log("--------------------------------------------------");
-console.log("Starting Magistory Render Server...");
-console.log(`Using PORT: ${PORT}`);
-console.log("--------------------------------------------------");
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
 
 // Increase limit for uploads (large video payloads)
 app.use(express.json({ limit: '500mb' }) as any);
@@ -27,7 +22,6 @@ app.use(express.json({ limit: '500mb' }) as any);
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        // Allow all origins for simplicity in demo/dev
         return callback(null, true);
     },
     credentials: true
@@ -124,6 +118,8 @@ app.get('/download/:jobId', (req, res) => {
     });
 });
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Render server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log("==================================================");
+    console.log(`✅ Render Server running on port ${PORT}`);
+    console.log("==================================================");
 });
