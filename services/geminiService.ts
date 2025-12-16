@@ -19,6 +19,7 @@ const getAI = () => {
     return new GoogleGenAI({ apiKey });
 };
 
+// ... existing generateVideoScript function ...
 export async function generateVideoScript(topic: string, requestedDuration: string, aspectRatio: 'landscape' | 'portrait' = 'landscape', visualStyle: 'video' | 'image' = 'video'): Promise<VideoScript> {
   const ai = getAI();
   try {
@@ -259,6 +260,71 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
   }
 }
 
+// NEW FUNCTION: Audio to Video Visual Generation
+export async function generateVisualsFromAudio(base64Audio: string, mimeType: string): Promise<{ segments: any[], title: string }> {
+    const ai = getAI();
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    inlineData: {
+                        mimeType: mimeType,
+                        data: base64Audio
+                    }
+                },
+                {
+                    text: `Analyze this audio. I want to create a video background for it using stock footage.
+                    
+                    Instructions:
+                    1. Identify the mood, tempo, and topic (if spoken) or vibe (if music).
+                    2. Break the audio into DISTINCT visual segments based on beat changes, topic shifts, or natural pauses.
+                    3. For each segment, provide:
+                       - 'duration': The duration of this visual clip in seconds.
+                       - 'search_keywords_for_media': Specific Pexels search terms (Subject + Action + Setting).
+                       - 'narration_text': If there is speech in this segment, transcribe it. If music only, describe the visual mood (e.g. "Slow motion waves").
+                    
+                    The sum of all durations must match the total audio length roughly.
+                    Generate a JSON response.`
+                }
+            ],
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        title: { type: Type.STRING, description: "Suggested title for the video" },
+                        segments: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    duration: { type: Type.NUMBER },
+                                    search_keywords_for_media: { type: Type.STRING },
+                                    narration_text: { type: Type.STRING }
+                                },
+                                required: ["duration", "search_keywords_for_media"]
+                            }
+                        }
+                    },
+                    required: ["title", "segments"]
+                }
+            }
+        });
+
+        const rawText = response.text;
+        if (!rawText) throw new Error("Empty response from Gemini.");
+        const cleanedText = cleanJsonText(rawText);
+        
+        return JSON.parse(cleanedText);
+
+    } catch (error: any) {
+        console.error("Gemini Audio Analysis Error:", error);
+        throw new Error(error.message || "Failed to analyze audio.");
+    }
+}
+
+// ... existing helper functions (suggestMediaKeywords, etc) ...
 export async function suggestMediaKeywords(narrationText: string, videoContext?: string): Promise<string> {
   const ai = getAI();
   const contextPrompt = videoContext ? `The overall video topic is: "${videoContext}".` : "";
