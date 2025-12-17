@@ -109,6 +109,13 @@ const App: React.FC = () => {
     setError(null);
   };
 
+  // Handler for Audio-to-Video feature which constructs script internally
+  const handleScriptReady = (script: VideoScript) => {
+      setVideoScript(script);
+      setView('editor');
+      setError(null);
+  };
+
   const handleLoadProject = (project: SavedProject) => {
       setVideoScript(project);
       setView('editor');
@@ -214,6 +221,7 @@ const App: React.FC = () => {
                         <PromptInput 
                             onGenerate={handleGenerateScript} 
                             onManualStart={handleManualStart} 
+                            onScriptReady={handleScriptReady}
                             onOpenProjects={() => setShowProjectModal(true)}
                         />
                         

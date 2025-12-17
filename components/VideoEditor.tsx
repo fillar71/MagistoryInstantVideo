@@ -61,7 +61,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const { deductCredits } = useAuth();
 
   // Refs for loop
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
   // --- DERIVED STATE ---
