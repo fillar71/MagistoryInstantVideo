@@ -1,4 +1,3 @@
-
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
@@ -11,11 +10,22 @@ import ffmpegPath from 'ffmpeg-static';
 // @ts-ignore
 import { path as ffprobePath } from 'ffprobe-static';
 
-// Set binary paths explicitely for Railway/Docker environments
-if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
-if (ffprobePath) ffmpeg.setFfprobePath(ffprobePath);
-
-const TEMP_DIR = path.join((process as any).cwd(), 'temp');
+// Set binary paths explicitly for Railway/Docker environments
+try {
+    if (ffmpegPath) {
+        ffmpeg.setFfmpegPath(ffmpegPath);
+        console.log("FFmpeg path set to:", ffmpegPath);
+    } else {
+        console.warn("ffmpeg-static path is null, relying on system ffmpeg.");
+    }
+    
+    if (ffprobePath) {
+        ffmpeg.setFfprobePath(ffprobePath);
+        console.log("FFprobe path set to:", ffprobePath);
+    }
+} catch (e) {
+    console.error("Error setting ffmpeg paths:", e);
+}
 
 interface RenderJob {
     title: string;
@@ -35,10 +45,10 @@ function getMediaDuration(filePath: string): Promise<number> {
     });
 }
 
-async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | 'audio'): Promise<string> {
+async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | 'audio', baseDir: string): Promise<string> {
     const ext = type === 'image' ? 'jpg' : type === 'video' ? 'mp4' : 'mp3';
     const filename = `${uuidv4()}.${ext}`;
-    const filePath = path.join(TEMP_DIR, jobId, filename);
+    const filePath = path.join(baseDir, jobId, filename);
 
     if (url.startsWith('data:')) {
         const matches = url.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
@@ -63,7 +73,7 @@ async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | '
 
 // Generate Advanced Substation Alpha (.ass) subtitle file for perfect sync
 function createASSFile(filePath: string, text: string, timings: any[], duration: number, width: number, height: number) {
-    // Removed absolute path /usr/share/fonts... using 'Sans' generic family which ffmpeg usually handles better on minimal systems
+    // Fallback font family 'Sans' is safer on minimal Linux
     let content = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${width}
@@ -111,7 +121,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if (currentLine.length > 0) {
         const start = fmtTime(currentLine[0].start);
         const end = fmtTime(currentLine[currentLine.length - 1].end);
-        // Ensure last subtitle lasts until the very end of segment duration if needed
         const lineText = currentLine.map(x => x.word).join(' ');
         content += `Dialogue: 0,${start},${fmtTime(duration)},Default,,0,0,0,,${lineText}\n`;
     }
@@ -120,9 +129,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 }
 
 
-export async function renderVideo(job: RenderJob): Promise<string> {
+export async function renderVideo(job: RenderJob, tempDir: string): Promise<string> {
     const jobId = uuidv4();
-    const jobDir = path.join(TEMP_DIR, jobId);
+    const jobDir = path.join(tempDir, jobId);
     
     if (!fs.existsSync(jobDir)) {
         fs.mkdirSync(jobDir, { recursive: true });
@@ -140,16 +149,11 @@ export async function renderVideo(job: RenderJob): Promise<string> {
             const seg = job.segments[i];
             const segOutputPath = path.join(jobDir, `seg_${i}.mp4`);
             
-            // --- SYNC STRATEGY: AUDIO IS KING ---
-            // 1. Download audio first
-            // 2. Measure EXACT audio duration
-            // 3. Adjust visual duration to match audio exactly
-            
             let audioPath = null;
-            let exactDuration = seg.duration || 3; // Fallback
+            let exactDuration = seg.duration || 3;
 
             if (seg.audioUrl) {
-                audioPath = await saveAsset(seg.audioUrl, jobId, 'audio');
+                audioPath = await saveAsset(seg.audioUrl, jobId, 'audio', tempDir);
                 try {
                     exactDuration = await getMediaDuration(audioPath);
                     console.log(`Segment ${i}: Exact Audio Duration = ${exactDuration}s`);
@@ -157,19 +161,11 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                     console.warn(`Failed to probe audio duration for seg ${i}, using fallback:`, e);
                 }
             } else {
-                // If no audio, strictly use the frontend planned duration
                 exactDuration = seg.duration;
             }
 
-            // --- VISUAL DURATION CALCULATION ---
-            const transitionDur = 0.5; // Fixed transition duration
+            const transitionDur = 0.5;
             const numClips = seg.media.length;
-            
-            // Logic: Total Visual Time (after overlaps) MUST EQUAL Exact Audio Duration
-            // Formula for N clips with (N-1) overlaps of transitionDur:
-            // TotalDuration = (ClipDur * N) - (TransitionDur * (N-1))
-            // Therefore: ClipDur = (TotalDuration + (TransitionDur * (N-1))) / N
-            
             const totalOverlapTime = Math.max(0, numClips - 1) * transitionDur;
             const requiredTotalRawDuration = exactDuration + totalOverlapTime;
             const perClipDuration = requiredTotalRawDuration / Math.max(1, numClips);
@@ -177,15 +173,14 @@ export async function renderVideo(job: RenderJob): Promise<string> {
             const clipInputs: { path: string, type: string, duration: number }[] = [];
 
             for (const clip of seg.media) {
-                const clipPath = await saveAsset(clip.url, jobId, clip.type);
+                const clipPath = await saveAsset(clip.url, jobId, clip.type, tempDir);
                 clipInputs.push({ 
                     path: clipPath, 
                     type: clip.type, 
-                    duration: perClipDuration // Use calculated precise duration
+                    duration: perClipDuration 
                 });
             }
 
-            // Create Subtitles using EXACT duration
             let assPath = '';
             if (seg.narration_text) {
                 assPath = path.join(jobDir, `subs_${i}.ass`);
@@ -196,54 +191,43 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                 const cmd = ffmpeg();
                 const filters: string[] = [];
                 
-                // --- VISUAL INPUTS ---
                 clipInputs.forEach(c => {
                     cmd.input(c.path);
                     if (c.type === 'image') cmd.inputOptions(['-loop 1']);
                 });
 
-                // --- AUDIO INPUT ---
                 const audioInputIndex = clipInputs.length;
                 let audioLabel = '';
 
                 if (audioPath) {
                     cmd.input(audioPath);
-                    // Filter: Resample to 44.1k Stereo, and slightly boost volume (1.5) for narration clarity
                     filters.push(`[${audioInputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=1.5[a_norm]`);
                     audioLabel = 'a_norm';
                 } else {
-                    // Generate silence that exactly matches duration
                     cmd.input(`anullsrc=channel_layout=stereo:sample_rate=44100:duration=${exactDuration}`).inputFormat('lavfi');
                     filters.push(`[${audioInputIndex}:a]aformat=sample_rates=44100:channel_layouts=stereo[a_norm]`);
                     audioLabel = 'a_norm';
                 }
 
-                // --- VISUAL FILTERS ---
                 let videoStreamLabel = '';
 
-                // Scale & Trim
                 clipInputs.forEach((c, idx) => {
                     const label = `v${idx}`;
-                    // Important: setpts=PTS-STARTPTS resets timestamp so trim works correctly in chain
                     filters.push(`[${idx}:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,trim=duration=${c.duration},setpts=PTS-STARTPTS[${label}]`);
                 });
 
-                // XFADE Transitions
                 if (clipInputs.length > 1) {
                     let prevLabel = 'v0';
-                    let currentOffset = clipInputs[0].duration; // Start offset after first clip ends
+                    let currentOffset = clipInputs[0].duration; 
                     
                     for (let j = 1; j < clipInputs.length; j++) {
                         const nextLabel = `v${j}`;
                         const outLabel = `mix${j}`;
-                        
-                        // Overlap starts 'transitionDur' before the current clip ends
                         const xfadeOffset = currentOffset - transitionDur;
                         
                         filters.push(`[${prevLabel}][${nextLabel}]xfade=transition=fade:duration=${transitionDur}:offset=${xfadeOffset}[${outLabel}]`);
                         
                         prevLabel = outLabel;
-                        // Add duration of next clip minus the overlap we just consumed
                         currentOffset += (clipInputs[j].duration - transitionDur);
                     }
                     videoStreamLabel = prevLabel;
@@ -251,7 +235,6 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                     videoStreamLabel = 'v0';
                 }
 
-                // Apply Subtitles
                 if (assPath) {
                     const assFilterPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
                     filters.push(`[${videoStreamLabel}]subtitles=filename='${assFilterPath}'[vfinal]`);
@@ -266,7 +249,6 @@ export async function renderVideo(job: RenderJob): Promise<string> {
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
                     '-c:a', 'aac',
-                    // Force output duration to match audio exactly to prevent 1-frame mismatches
                     `-t`, `${exactDuration}`
                 ]);
 
@@ -306,7 +288,7 @@ export async function renderVideo(job: RenderJob): Promise<string> {
         const complexFilters: string[] = [];
 
         for (const track of job.audioTracks) {
-            const trackPath = await saveAsset(track.url, jobId, 'audio');
+            const trackPath = await saveAsset(track.url, jobId, 'audio', tempDir);
             finalCmd.input(trackPath);
             
             const delayMs = Math.round(track.startTime * 1000);
