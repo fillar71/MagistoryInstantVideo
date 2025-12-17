@@ -54,6 +54,7 @@ export interface VideoScript {
   backgroundMusicKeywords?: string;
   segments: Segment[];
   audioTracks?: AudioClip[]; // New global audio tracks
+  aspectRatio: 'landscape' | 'portrait'; // Added aspect Ratio
 }
 
 export interface SavedProject extends VideoScript {

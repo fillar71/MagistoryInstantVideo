@@ -81,6 +81,7 @@ const App: React.FC = () => {
 
     const initialScript: VideoScript = {
         title: "New Project",
+        aspectRatio: 'landscape', // Default to landscape for manual
         segments: [{
             id: `segment-${Date.now()}`,
             narration_text: "Welcome to your new video. Click here to edit text, or use the Media button to upload your own clips.",

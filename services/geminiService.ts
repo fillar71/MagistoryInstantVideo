@@ -249,7 +249,8 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
         title: parsedResponse.title,
         backgroundMusicKeywords: parsedResponse.background_music_keywords,
         segments: segmentsWithMedia,
-        audioTracks: audioTracks
+        audioTracks: audioTracks,
+        aspectRatio: aspectRatio // PERSIST ASPECT RATIO
     };
 
     return processedScript;
@@ -514,22 +515,29 @@ export async function getVideosOperation(operation: { operation: any }) {
     return await ai.operations.getVideosOperation(operation);
 }
 
-export async function generateSpeechFromText(text: string): Promise<string> {
+export async function generateSpeechFromText(text: string, voiceName: string = 'Kore', speed: number = 1.0): Promise<string> {
     const ai = getAI();
     let lastError: any;
     
+    // Prompt Engineering for Speed if not supported natively in this version
+    let promptText = text;
+    if (speed >= 1.5) promptText = `Speak very fast: ${text}`;
+    else if (speed >= 1.25) promptText = `Speak quickly: ${text}`;
+    else if (speed <= 0.6) promptText = `Speak very slowly: ${text}`;
+    else if (speed <= 0.8) promptText = `Speak slowly: ${text}`;
+
     // Retry count reduced to 3. Removed aggressive backoff to improve perceived speed.
     // If it fails 3 times with ~5s total wait, it's better to fail than hang the UI for 1 min.
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             const response = await ai.models.generateContent({
                 model: "gemini-2.5-flash-preview-tts",
-                contents: [{ parts: [{ text: text }] }],
+                contents: [{ parts: [{ text: promptText }] }],
                 config: {
                     responseModalities: [Modality.AUDIO],
                     speechConfig: {
                         voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: 'Kore' },
+                            prebuiltVoiceConfig: { voiceName: voiceName },
                         },
                     },
                 },

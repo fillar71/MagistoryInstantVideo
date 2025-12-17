@@ -129,6 +129,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart, on
                   const script: VideoScript = {
                       title: analysis.title || "Audio Visualization",
                       segments: segments,
+                      aspectRatio: aspectRatio, // PERSIST ASPECT RATIO
                       audioTracks: [{
                           id: 'main-audio-track',
                           url: audioObjectUrl,

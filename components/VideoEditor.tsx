@@ -28,6 +28,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const [segments, setSegments] = useState<Segment[]>(initialScript.segments);
   const [audioTracks, setAudioTracks] = useState<AudioClip[]>(initialScript.audioTracks || []);
   const [title, setTitle] = useState(initialScript.title);
+  const [aspectRatio, setAspectRatio] = useState<'landscape' | 'portrait'>(initialScript.aspectRatio || 'landscape');
 
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(segments.length > 0 ? segments[0].id : null);
   const [activeAudioTrackId, setActiveAudioTrackId] = useState<string | null>(null);
@@ -117,7 +118,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
               title,
               segments,
               audioTracks,
-              backgroundMusicKeywords: initialScript.backgroundMusicKeywords
+              backgroundMusicKeywords: initialScript.backgroundMusicKeywords,
+              aspectRatio: aspectRatio
           };
           const saved = saveProject(projectData);
           setProjectId(saved.id); // Update ID if it was new
@@ -319,7 +321,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   }
 
   // --- ROBUST SEQUENTIAL GENERATION HANDLER ---
-  const handleGenerateAllNarrations = async () => {
+  const handleGenerateAllNarrations = async (settings?: { voice: string, speed: number }) => {
       // 1. Identify work
       const indicesToProcess = segments
           .map((s, i) => (s.narration_text && !s.audioUrl ? i : -1))
@@ -343,6 +345,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       
       let completedCount = 0;
       let currentSegmentsState = [...segments];
+      
+      const selectedVoice = settings?.voice || 'Kore';
+      const selectedSpeed = settings?.speed || 1.0;
 
       // 4. Process Loop
       for (const idx of indicesToProcess) {
@@ -354,8 +359,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           const seg = currentSegmentsState[idx];
           
           try {
-              // Generate - geminiService already handles reasonable retries
-              const base64Audio = await generateSpeechFromText(seg.narration_text);
+              // Generate - passing voice and speed
+              const base64Audio = await generateSpeechFromText(seg.narration_text, selectedVoice, selectedSpeed);
               const wavUrl = createWavBlobUrl(base64Audio);
               const duration = await getAudioDuration(wavUrl);
               
@@ -381,7 +386,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           } catch (e: any) {
               console.error(`Failed to generate audio for segment ${idx}:`, e);
               // In bulk mode, we skip failed items and continue to the next
-              // Maybe add a toast notification here later
           }
       }
       
@@ -458,6 +462,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                                 totalDuration={totalDuration}
                                 onPlayPause={handlePlayPause}
                                 onSeek={handleSeek}
+                                aspectRatio={aspectRatio} // PASS ASPECT RATIO
                              />
                         )}
                         {/* Header Actions Overlay */}
@@ -550,7 +555,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             onUpdateAudio={handleAIToolsUpdateAudio}
             initialTab={activeAIToolTab}
             allSegments={segments}
-            onGenerateAllNarrations={handleGenerateAllNarrations} // Updated for robust sequential processing
+            onGenerateAllNarrations={handleGenerateAllNarrations} 
             generationProgress={generationProgress}
             onCancelGeneration={handleCancelGeneration}
         />
@@ -561,6 +566,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             title={title}
             segments={segments}
             audioTracks={audioTracks}
+            aspectRatio={aspectRatio}
         />
 
         <VideoPreviewModal 
