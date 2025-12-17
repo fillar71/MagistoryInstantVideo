@@ -6,17 +6,13 @@ import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 
-// Prioritaskan ffmpeg dari node_modules (ffmpeg-static) jika ada, atau sistem
+// Import static binaries
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
+// Set paths correctly - ffmpeg-static returns a string path, ffprobe-static returns an object
 if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
-} else {
-    const systemFfmpeg = '/usr/bin/ffmpeg';
-    if (fs.existsSync(systemFfmpeg)) {
-        ffmpeg.setFfmpegPath(systemFfmpeg);
-    }
 }
 
 if (ffprobeStatic && ffprobeStatic.path) {
@@ -39,8 +35,14 @@ async function saveAsset(url: string, jobId: string, type: string, baseDir: stri
     const filePath = path.join(jobDir, filename);
 
     if (url.startsWith('data:')) {
-        const base64Data = url.split(',')[1];
-        fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+        const matches = url.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches[2]) {
+            fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
+        } else {
+            // Fallback for direct base64
+            const base64Data = url.split(',')[1] || url;
+            fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+        }
     } else {
         const response = await axios({ url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(filePath);
@@ -75,15 +77,34 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             await new Promise<void>((resolve, reject) => {
                 const cmd = ffmpeg(clipPath);
                 
-                // Jika input berupa gambar, buat loop
+                // Input options for visual
                 if (seg.media[0].type === 'image') {
                     cmd.inputOptions(['-loop 1', `-t ${seg.duration}`]);
                 } else {
                     cmd.inputOptions([`-t ${seg.duration}`]);
                 }
                 
-                const filterComplex = [
-                    `[0:v]scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v]`
+                // Building complex filter
+                // We generate visual [v] and audio [a]
+                const filters: any[] = [
+                    {
+                        filter: 'scale',
+                        options: `${width}:${height}:force_original_aspect_ratio=decrease`,
+                        inputs: '0:v',
+                        outputs: 'v1'
+                    },
+                    {
+                        filter: 'pad',
+                        options: `${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+                        inputs: 'v1',
+                        outputs: 'v2'
+                    },
+                    {
+                        filter: 'setsar',
+                        options: '1',
+                        inputs: 'v2',
+                        outputs: 'v'
+                    }
                 ];
 
                 const outputOptions = [
@@ -97,16 +118,24 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                 ];
 
                 if (audioPath) {
-                    // Jika ada file audio, tambahkan sebagai input kedua
+                    // If audio exists, add as second input
                     cmd.input(audioPath);
                     outputOptions.push('-map 1:a');
                 } else {
-                    // Jika TIDAK ADA audio, buat audio hening di dalam filter (menghindari -f lavfi)
-                    filterComplex.push(`anullsrc=channel_layout=stereo:sample_rate=44100:duration=${seg.duration}[a]`);
+                    // CRITICAL FIX: Generate silence INSIDE complex filter to avoid -f lavfi
+                    filters.push({
+                        filter: 'anullsrc',
+                        options: {
+                            channel_layout: 'stereo',
+                            sample_rate: 44100,
+                            duration: seg.duration
+                        },
+                        outputs: 'a'
+                    });
                     outputOptions.push('-map [a]');
                 }
 
-                cmd.complexFilter(filterComplex)
+                cmd.complexFilter(filters)
                     .outputOptions(outputOptions)
                     .save(segPath)
                     .on('end', () => resolve())
@@ -118,7 +147,7 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             segmentFiles.push(segPath);
         }
 
-        // Gabungkan semua segment
+        // Final Concatenation
         const listPath = path.join(jobDir, 'list.txt');
         fs.writeFileSync(listPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
 
@@ -129,7 +158,10 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                 .outputOptions(['-c copy'])
                 .save(outputPath)
                 .on('end', () => resolve())
-                .on('error', (err) => reject(err));
+                .on('error', (err) => {
+                    console.error("Concatenation Error:", err);
+                    reject(err);
+                });
         });
 
         return outputPath;
