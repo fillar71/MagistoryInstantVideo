@@ -1,0 +1,32 @@
+# nixpacks.toml - Konfigurasi Infrastruktur Magistory untuk Railway
+
+[phases.setup]
+# Menginstal Node.js, FFmpeg native, dan Font untuk subtitle
+nixPkgs = [
+    "nodejs",
+    "ffmpeg",
+    "fontconfig",
+    "dejavu-fonts"
+]
+
+[phases.install]
+# Menginstal semua dependencies di root dan sub-services
+cmds = [
+    "npm install",
+    "cd services/api-server && npm install",
+    "cd services/render-server && npm install"
+]
+
+[phases.build]
+# Melakukan build untuk semua services
+cmds = [
+    "cd services/api-server && npm run build",
+    "cd services/render-server && npm run build"
+]
+
+[start]
+# Railway akan menjalankan service berdasarkan 'Root Directory' yang Anda set di dashboard.
+# Jika Anda menjalankan Render Server, pastikan Start Command di Dashboard Railway adalah:
+# npm run start:render
+# Atau jika API Server:
+# npm run start:api
