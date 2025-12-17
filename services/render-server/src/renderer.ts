@@ -6,17 +6,18 @@ import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 
-// Import static binaries
+// @ts-ignore
 import ffmpegStatic from 'ffmpeg-static';
-import ffprobeStatic from 'ffprobe-static';
+// @ts-ignore
+import { path as ffprobePath } from 'ffprobe-static';
 
-// Set paths correctly - ffmpeg-static returns a string path, ffprobe-static returns an object
+// Set paths correctly
 if (ffmpegStatic) {
     ffmpeg.setFfmpegPath(ffmpegStatic);
 }
 
-if (ffprobeStatic && ffprobeStatic.path) {
-    ffmpeg.setFfprobePath(ffprobeStatic.path);
+if (ffprobePath) {
+    ffmpeg.setFfprobePath(ffprobePath);
 }
 
 interface RenderJob {
@@ -39,7 +40,6 @@ async function saveAsset(url: string, jobId: string, type: string, baseDir: stri
         if (matches && matches[2]) {
             fs.writeFileSync(filePath, Buffer.from(matches[2], 'base64'));
         } else {
-            // Fallback for direct base64
             const base64Data = url.split(',')[1] || url;
             fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
         }
@@ -77,15 +77,12 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             await new Promise<void>((resolve, reject) => {
                 const cmd = ffmpeg(clipPath);
                 
-                // Input options for visual
                 if (seg.media[0].type === 'image') {
                     cmd.inputOptions(['-loop 1', `-t ${seg.duration}`]);
                 } else {
                     cmd.inputOptions([`-t ${seg.duration}`]);
                 }
                 
-                // Building complex filter
-                // We generate visual [v] and audio [a]
                 const filters: any[] = [
                     {
                         filter: 'scale',
@@ -118,11 +115,9 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                 ];
 
                 if (audioPath) {
-                    // If audio exists, add as second input
                     cmd.input(audioPath);
                     outputOptions.push('-map 1:a');
                 } else {
-                    // CRITICAL FIX: Generate silence INSIDE complex filter to avoid -f lavfi
                     filters.push({
                         filter: 'anullsrc',
                         options: {
@@ -147,7 +142,6 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             segmentFiles.push(segPath);
         }
 
-        // Final Concatenation
         const listPath = path.join(jobDir, 'list.txt');
         fs.writeFileSync(listPath, segmentFiles.map(f => `file '${f}'`).join('\n'));
 
