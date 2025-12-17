@@ -261,10 +261,15 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
 }
 
 // NEW FUNCTION: Audio to Video Visual Generation with Retry Logic
-export async function generateVisualsFromAudio(base64Audio: string, mimeType: string): Promise<{ segments: any[], title: string }> {
+export async function generateVisualsFromAudio(base64Audio: string, mimeType: string, targetDuration: string = "full"): Promise<{ segments: any[], title: string }> {
     const ai = getAI();
     let lastError: any;
     const maxRetries = 3;
+
+    // Adjust instruction based on duration preference
+    const durationInstruction = targetDuration === "full" 
+        ? "The sum of all segment durations must match the total audio length roughly. Plan for the ENTIRE audio." 
+        : `The user only wants a preview of the audio. The total duration of segments must sum up to approximately ${targetDuration}. Focus on visualizing the BEGINNING of the audio.`;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -288,7 +293,7 @@ export async function generateVisualsFromAudio(base64Audio: string, mimeType: st
                            - 'search_keywords_for_media': Specific Pexels search terms (Subject + Action + Setting).
                            - 'narration_text': If there is speech in this segment, transcribe it. If music only, describe the visual mood (e.g. "Slow motion waves").
                         
-                        The sum of all durations must match the total audio length roughly.
+                        ${durationInstruction}
                         Generate a JSON response.`
                     }
                 ],
@@ -366,7 +371,7 @@ export async function generateVisualsFromAudio(base64Audio: string, mimeType: st
     throw new Error(userMessage);
 }
 
-// ... existing helper functions (suggestMediaKeywords, etc) ...
+// ... existing helper functions ...
 export async function suggestMediaKeywords(narrationText: string, videoContext?: string): Promise<string> {
   const ai = getAI();
   const contextPrompt = videoContext ? `The overall video topic is: "${videoContext}".` : "";

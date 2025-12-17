@@ -64,8 +64,9 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart, on
               
               try {
                   // 2. Analyze with Gemini
+                  // We pass the selected duration context to Gemini
                   setAudioStatus('Gemini is listening & planning visual structure...');
-                  const analysis = await generateVisualsFromAudio(base64String, mimeType);
+                  const analysis = await generateVisualsFromAudio(base64String, mimeType, duration);
                   
                   // 3. Fetch Visuals for segments
                   setAudioStatus(`Searching stock media for ${analysis.segments.length} scenes...`);
@@ -76,13 +77,24 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart, on
                       let mediaType: 'image' | 'video' = 'image';
 
                       try {
-                          // Try Video first
-                          const videoResults = await searchPexelsVideos(keyword, aspectRatio);
-                          if (videoResults && videoResults.length > 0) {
-                              const bestVideo = videoResults[0].video_files.find((f: any) => f.quality === 'sd') || videoResults[0].video_files[0];
-                              mediaUrl = bestVideo.link;
-                              mediaType = 'video';
+                          if (visualStyle === 'video') {
+                              // User wants VIDEO: Try Video first, fallback to Image
+                              const videoResults = await searchPexelsVideos(keyword, aspectRatio);
+                              if (videoResults && videoResults.length > 0) {
+                                  // Prefer SD/Tiny for faster loading/preview
+                                  const bestVideo = videoResults[0].video_files.find((f: any) => f.quality === 'sd') || videoResults[0].video_files[0];
+                                  mediaUrl = bestVideo.link;
+                                  mediaType = 'video';
+                              } else {
+                                  // Fallback to photo if no video found
+                                  const photoResults = await searchPexelsPhotos(keyword, aspectRatio);
+                                  if (photoResults.length > 0) {
+                                      mediaUrl = photoResults[0].src.large2x;
+                                      mediaType = 'image';
+                                  }
+                              }
                           } else {
+                              // User wants IMAGE ONLY
                               const photoResults = await searchPexelsPhotos(keyword, aspectRatio);
                               if (photoResults.length > 0) {
                                   mediaUrl = photoResults[0].src.large2x;
@@ -317,7 +329,7 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart, on
                   <>
                     <div 
                         onClick={() => fileInputRef.current?.click()}
-                        className="w-full max-w-lg border-2 border-dashed border-gray-600 hover:border-orange-500 bg-gray-900/50 hover:bg-gray-800/80 rounded-2xl p-10 cursor-pointer transition-all group flex flex-col items-center gap-4"
+                        className="w-full max-w-2xl border-2 border-dashed border-gray-600 hover:border-orange-500 bg-gray-900/50 hover:bg-gray-800/80 rounded-2xl p-10 cursor-pointer transition-all group flex flex-col items-center gap-4"
                     >
                         <div className="p-4 bg-gray-800 rounded-full group-hover:bg-orange-600 transition-colors">
                             <ExportIcon className="w-8 h-8 text-gray-400 group-hover:text-white" />
@@ -336,18 +348,45 @@ const PromptInput: React.FC<PromptInputProps> = ({ onGenerate, onManualStart, on
                     </div>
 
                     {audioFile && (
-                        <div className="mt-6 w-full max-w-lg">
+                        <div className="mt-6 w-full max-w-2xl">
                             <div className="flex items-center gap-3 bg-gray-800 p-3 rounded-lg border border-gray-700 mb-6">
                                 <MusicIcon className="w-5 h-5 text-orange-400" />
                                 <span className="text-sm text-gray-200 truncate flex-grow">{audioFile.name}</span>
                                 <button onClick={() => setAudioFile(null)} className="text-red-400 hover:text-red-300 text-sm">Remove</button>
                             </div>
                             
-                            <div className="flex gap-2 justify-center mb-6">
+                            {/* NEW: Options Row for Audio Mode */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                                 {/* Visual Style */}
+                                 <select 
+                                    value={visualStyle}
+                                    onChange={(e) => setVisualStyle((e.target as any).value)}
+                                    className="p-3 bg-gray-900 border border-gray-700 rounded-md focus:border-orange-500 outline-none text-sm text-white"
+                                    title="Visual Style"
+                                >
+                                    <option value="video">Dynamic Video Clips</option>
+                                    <option value="image">Static Images Only</option>
+                                </select>
+
+                                {/* Duration */}
+                                <select 
+                                    value={duration}
+                                    onChange={(e) => setDuration((e.target as any).value)}
+                                    className="p-3 bg-gray-900 border border-gray-700 rounded-md focus:border-orange-500 outline-none text-sm text-white"
+                                    title="Target Duration"
+                                >
+                                    <option value="full">Full Audio Length</option>
+                                    <option value="30 seconds">30 Seconds Preview</option>
+                                    <option value="1 minute">1 Minute Preview</option>
+                                    <option value="2 minutes">2 Minutes Preview</option>
+                                </select>
+
+                                 {/* Aspect Ratio */}
                                  <select 
                                     value={aspectRatio}
                                     onChange={(e) => setAspectRatio((e.target as any).value)}
-                                    className="p-3 bg-gray-900 border border-gray-700 rounded-md focus:border-orange-500 outline-none text-sm"
+                                    className="p-3 bg-gray-900 border border-gray-700 rounded-md focus:border-orange-500 outline-none text-sm text-white"
+                                    title="Aspect Ratio"
                                 >
                                     <option value="landscape">Landscape (16:9)</option>
                                     <option value="portrait">Portrait (9:16)</option>
