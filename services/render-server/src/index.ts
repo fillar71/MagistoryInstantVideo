@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { renderVideo } from './renderer';
@@ -6,14 +5,20 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
-// Handle unhandled exceptions
+// Handle unhandled exceptions to prevent hard crashes
 (process as any).on('uncaughtException', (err: any) => {
-    console.error('UNCAUGHT EXCEPTION:', err);
+    console.error('CRITICAL UNCAUGHT EXCEPTION:', err);
+});
+
+(process as any).on('unhandledRejection', (reason: any, promise: any) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 const app = express();
-// Priority: Environment Variable > 3002
+// Priority: Environment Variable > 3002. Railway MUST use process.env.PORT
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
+
+console.log(`Starting Render Server... Environment Port: ${process.env.PORT}, Selected Port: ${PORT}`);
 
 // Increase limit for uploads (large video payloads)
 app.use(express.json({ limit: '500mb' }) as any);
@@ -27,10 +32,15 @@ app.use(cors({
     credentials: true
 }) as any);
 
-
+// Ensure Temp Directory Exists - Wrap in try-catch for read-only filesystem protection
 const TEMP_DIR = path.join((process as any).cwd(), 'temp');
-if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR, { recursive: true });
+try {
+    if (!fs.existsSync(TEMP_DIR)) {
+        console.log(`Creating temp directory at: ${TEMP_DIR}`);
+        fs.mkdirSync(TEMP_DIR, { recursive: true });
+    }
+} catch (err) {
+    console.error("WARNING: Failed to create temp directory. If this is a read-only environment, rendering may fail.", err);
 }
 
 // --- HEALTH CHECK ---
@@ -52,9 +62,11 @@ setInterval(() => {
     const now = Date.now();
     for (const [id, job] of jobs.entries()) {
         if (now - job.createdAt > 3600000) { // 1 hour
-            if (job.path && fs.existsSync(job.path)) {
-                fs.unlinkSync(job.path);
-            }
+            try {
+                if (job.path && fs.existsSync(job.path)) {
+                    fs.unlinkSync(job.path);
+                }
+            } catch (e) { /* ignore cleanup errors */ }
             jobs.delete(id);
         }
     }
@@ -68,6 +80,7 @@ app.post('/render', async (req, res) => {
         
         jobs.set(jobId, { status: 'processing', createdAt: Date.now() });
         
+        // Non-blocking render call
         renderVideo(req.body)
             .then((outputPath) => {
                 console.log(`Job ${jobId} completed: ${outputPath}`);
@@ -118,8 +131,16 @@ app.get('/download/:jobId', (req, res) => {
     });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log("==================================================");
     console.log(`✅ Render Server running on port ${PORT}`);
     console.log("==================================================");
+});
+
+// Graceful Shutdown
+(process as any).on('SIGTERM', () => {
+    console.log('SIGTERM received. Shutting down gracefully...');
+    server.close(() => {
+        console.log('Process terminated.');
+    });
 });

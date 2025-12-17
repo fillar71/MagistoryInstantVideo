@@ -1,6 +1,6 @@
 
 import React, { useRef, useMemo, useEffect } from 'react';
-import type { Segment } from '../types';
+import type { Segment, AudioClip } from '../types';
 import { PlayIcon, PauseIcon, ChevronLeftIcon, ChevronRightIcon } from './icons';
 import { generateSubtitleChunks } from '../utils/media';
 
@@ -9,6 +9,7 @@ interface PreviewWindowProps {
   onTitleChange: (newTitle: string) => void;
   segment: Segment; 
   segments: Segment[];
+  audioTracks?: AudioClip[]; // New prop for global audio
   activeSegmentId: string;
   onUpdateSegments: (segments: Segment[]) => void;
   currentTime: number;
@@ -21,9 +22,12 @@ interface PreviewWindowProps {
 }
 
 const PreviewWindow: React.FC<PreviewWindowProps> = ({ 
-    title, onTitleChange, segments, currentTime, isPlaying, totalDuration, onPlayPause, onSeek
+    title, onTitleChange, segments, audioTracks = [], currentTime, isPlaying, totalDuration, onPlayPause, onSeek
 }) => {
-    const audioRef = useRef<HTMLAudioElement>(null);
+    // Segment audio player
+    const segmentAudioRef = useRef<HTMLAudioElement>(null);
+    // Global audio player (for background music or "Audio to Video" uploads)
+    const globalAudioRef = useRef<HTMLAudioElement>(null);
 
     const currentRenderState = useMemo(() => {
         let elapsed = 0;
@@ -40,26 +44,67 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         return null;
     }, [currentTime, segments]);
 
-    // Audio Sync
+    // Segment Audio Sync (Narration)
     useEffect(() => {
-        if (!audioRef.current) return;
+        if (!segmentAudioRef.current) return;
         const activeSeg = currentRenderState?.segment;
         if (activeSeg?.audioUrl) {
-            if (!audioRef.current.src.includes(activeSeg.audioUrl)) {
-                 audioRef.current.src = activeSeg.audioUrl;
+            if (!segmentAudioRef.current.src.includes(activeSeg.audioUrl)) {
+                 segmentAudioRef.current.src = activeSeg.audioUrl;
             }
             const expectedTime = currentRenderState?.localTime || 0;
-            if (Math.abs(audioRef.current.currentTime - expectedTime) > 0.3) {
-                audioRef.current.currentTime = expectedTime;
+            if (Math.abs(segmentAudioRef.current.currentTime - expectedTime) > 0.3) {
+                segmentAudioRef.current.currentTime = expectedTime;
             }
-            if (isPlaying) audioRef.current.play().catch(() => {});
-            else audioRef.current.pause();
-            audioRef.current.volume = activeSeg.audioVolume ?? 1.0;
+            if (isPlaying) segmentAudioRef.current.play().catch(() => {});
+            else segmentAudioRef.current.pause();
+            segmentAudioRef.current.volume = activeSeg.audioVolume ?? 1.0;
         } else {
-            audioRef.current.pause();
-            audioRef.current.src = "";
+            segmentAudioRef.current.pause();
+            segmentAudioRef.current.src = "";
         }
     }, [currentRenderState?.segment.id, currentRenderState?.localTime, isPlaying]);
+
+    // Global Audio Sync (Background Music / Uploaded Audio)
+    useEffect(() => {
+        if (!globalAudioRef.current) return;
+        
+        // Find the most prominent audio track active at current time
+        // Priority to music/upload types. 
+        // Note: Previewing multiple overlapping audio tracks is complex with HTML Audio.
+        // We pick the first one active for preview purposes.
+        const activeTrack = audioTracks.find(t => currentTime >= t.startTime && currentTime < t.startTime + t.duration);
+
+        if (activeTrack) {
+            if (!globalAudioRef.current.src.includes(activeTrack.url)) {
+                globalAudioRef.current.src = activeTrack.url;
+            }
+            
+            const trackLocalTime = currentTime - activeTrack.startTime;
+            
+            // Sync time if drift is large
+            if (Math.abs(globalAudioRef.current.currentTime - trackLocalTime) > 0.3) {
+                globalAudioRef.current.currentTime = trackLocalTime;
+            }
+
+            globalAudioRef.current.volume = activeTrack.volume;
+
+            if (isPlaying) {
+                globalAudioRef.current.play().catch(e => {
+                    // Ignore play error if loading
+                });
+            } else {
+                globalAudioRef.current.pause();
+            }
+        } else {
+            globalAudioRef.current.pause();
+            if (globalAudioRef.current.src) {
+                // Don't clear src immediately to prevent stutter if skipping short gaps, just pause
+                // But if we seek far away, maybe we should? For now just pause.
+            }
+        }
+    }, [currentTime, isPlaying, audioTracks]);
+
 
     // Subtitle Rendering
     const renderKaraokeText = () => {
@@ -139,8 +184,9 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                 </div>
             </div>
 
-            {/* Hidden Audio */}
-            <audio ref={audioRef} className="hidden" />
+            {/* Hidden Audio Players */}
+            <audio ref={segmentAudioRef} className="hidden" />
+            <audio ref={globalAudioRef} className="hidden" />
         </div>
     );
 };

@@ -450,6 +450,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                                 onTitleChange={setTitle}
                                 segment={activeSegment}
                                 segments={segments}
+                                audioTracks={audioTracks} // PASS GLOBAL AUDIO TRACKS
                                 activeSegmentId={activeSegmentId || ''}
                                 onUpdateSegments={setSegments}
                                 currentTime={currentTime}
