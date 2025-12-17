@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
@@ -10,18 +9,29 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 
 const app = express();
 
+// Enable Trust Proxy for Railway/Heroku
+app.enable('trust proxy');
+
 // CRITICAL: Railway assigns a random port in process.env.PORT. 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+
+console.log(`Starting API Server... Port: ${PORT}`);
 
 // Increase limit for uploads
 app.use(express.json({ limit: '5mb' }) as any);
 
+// Middleware: Logger
+app.use((req, res, next) => {
+    // Only log non-health checks to avoid noise, or log all for debugging now
+    if (req.url !== '/health' && req.url !== '/') {
+        console.log(`[API] ${req.method} ${req.url}`);
+    }
+    next();
+});
+
 // CORS Configuration
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        return callback(null, true);
-    },
+    origin: true, // Allow all origins for robustness
     credentials: true
 }) as any);
 
@@ -134,11 +144,5 @@ app.listen(PORT, '0.0.0.0', () => {
         console.log("   App is running in LOCAL JSON MODE. Data will reset on redeploy.");
     } else {
         console.log("✅ Database: Connected");
-    }
-
-    if (PORT === 3001 && process.env.RAILWAY_STATIC_URL) {
-        console.log("⚠️  WARNING: Running on default port 3001 in Railway environment.");
-        console.log("   If the Health Check fails, remove the 'PORT' variable from Railway settings");
-        console.log("   to let Railway assign a dynamic port automatically.");
     }
 });

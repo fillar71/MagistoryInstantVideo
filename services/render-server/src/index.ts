@@ -1,9 +1,9 @@
-
 import express from 'express';
 import cors from 'cors';
 import { renderVideo } from './renderer';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
 // Handle unhandled exceptions to prevent hard crashes
@@ -16,36 +16,44 @@ import { v4 as uuidv4 } from 'uuid';
 });
 
 const app = express();
+
+// Enable Trust Proxy for Railway/Heroku Load Balancers
+app.enable('trust proxy');
+
 // Priority: Environment Variable > 3002. Railway MUST use process.env.PORT
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
 
-console.log(`Starting Render Server... Environment Port: ${process.env.PORT}, Selected Port: ${PORT}`);
+console.log(`Starting Render Server...`);
+console.log(`Configured Port: ${PORT} (Env: ${process.env.PORT})`);
 
 // --- MIDDLEWARE SETUP (Order matters!) ---
 
-// 1. CORS - Must be first to handle Preflight (OPTIONS) requests correctly
+// 1. Request Logger (Debug Health Checks)
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
+    next();
+});
+
+// 2. CORS - Must be first to handle Preflight (OPTIONS) requests correctly
 app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin) return callback(null, true);
-        return callback(null, true);
-    },
+    origin: true, // Allow all origins for now to prevent CORS blocking 502s
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }) as any);
 
-// 2. Body Parser - Increase limit for uploads (large video payloads)
+// 3. Body Parser - Increase limit for uploads (large video payloads)
 app.use(express.json({ limit: '500mb' }) as any);
 
-// Ensure Temp Directory Exists - Wrap in try-catch for read-only filesystem protection
-const TEMP_DIR = path.join((process as any).cwd(), 'temp');
+// Ensure Temp Directory Exists - Use OS Temp Dir for reliability
+const TEMP_DIR = path.join(os.tmpdir(), 'magistory-render');
 try {
     if (!fs.existsSync(TEMP_DIR)) {
         console.log(`Creating temp directory at: ${TEMP_DIR}`);
         fs.mkdirSync(TEMP_DIR, { recursive: true });
     }
 } catch (err) {
-    console.error("WARNING: Failed to create temp directory. If this is a read-only environment, rendering may fail.", err);
+    console.error("WARNING: Failed to create temp directory.", err);
 }
 
 // --- HEALTH CHECK ---
@@ -86,7 +94,7 @@ app.post('/render', async (req, res) => {
         jobs.set(jobId, { status: 'processing', createdAt: Date.now() });
         
         // Non-blocking render call
-        renderVideo(req.body)
+        renderVideo(req.body, TEMP_DIR)
             .then((outputPath) => {
                 console.log(`Job ${jobId} completed: ${outputPath}`);
                 jobs.set(jobId, { status: 'completed', path: outputPath, createdAt: Date.now() });
