@@ -7,12 +7,23 @@ import fs from 'fs';
 import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 
+// Catch startup errors
+(process as any).on('uncaughtException', (err: any) => {
+    console.error('CRITICAL RENDER SERVER ERROR:', err);
+});
+
 const app = express();
 app.enable('trust proxy');
 
-// 1. HEALTH CHECK PERTAMA (Agar Railway tidak membunuh proses saat startup)
-app.get('/health', (req, res) => res.status(200).send('OK'));
-app.get('/', (req, res) => res.status(200).send('Render Server Online'));
+// 1. HEALTH CHECK PERTAMA
+app.get('/health', (req, res) => {
+    console.log(`[Health] Check received from ${req.ip}`);
+    res.status(200).send('OK')
+});
+app.get('/', (req, res) => {
+    console.log(`[Root] Check received from ${req.ip}`);
+    res.status(200).send('Render Server Online')
+});
 
 // 2. CORS
 app.use(cors({
@@ -22,8 +33,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }) as any);
 
-// 3. MEMORY OPTIMIZATION: Turunkan limit ke 100MB. 
-// 500MB akan membunuh server Railway RAM 512MB secara instan.
+// 3. MEMORY OPTIMIZATION
 app.use(express.json({ limit: '100mb' }) as any);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
@@ -81,6 +91,13 @@ app.get('/download/:jobId', (req, res) => {
     res.download(job.path, 'video.mp4');
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Render Server Live on port ${PORT}`);
+});
+
+(process as any).on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+    });
 });

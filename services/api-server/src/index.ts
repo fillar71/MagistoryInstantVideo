@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
@@ -5,6 +6,10 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 // Handle unhandled exceptions to prevent hard crashes without logs
 (process as any).on('uncaughtException', (err: any) => {
     console.error('CRITICAL UNCAUGHT EXCEPTION:', err);
+});
+
+(process as any).on('unhandledRejection', (reason: any, promise: any) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 const app = express();
@@ -15,15 +20,17 @@ app.enable('trust proxy');
 // CRITICAL: Railway assigns a random port in process.env.PORT. 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
-console.log(`Starting API Server... Port: ${PORT}`);
+console.log(`Starting API Server initialization... Port will be: ${PORT}`);
 
 // Increase limit for uploads
 app.use(express.json({ limit: '5mb' }) as any);
 
 // Middleware: Logger
 app.use((req, res, next) => {
-    // Only log non-health checks to avoid noise, or log all for debugging now
-    if (req.url !== '/health' && req.url !== '/') {
+    // Always log health checks in dev/debug mode to confirm load balancer connection
+    if (req.url === '/' || req.url === '/health') {
+        console.log(`[HealthCheck] ${req.method} ${req.url} from ${req.ip}`);
+    } else {
         console.log(`[API] ${req.method} ${req.url}`);
     }
     next();
@@ -36,6 +43,7 @@ app.use(cors({
 }) as any);
 
 // --- HEALTH CHECK (Required for Railway) ---
+// Note: Railway checks '/' by default unless configured otherwise.
 app.get('/', (req, res) => {
     res.status(200).send('Magistory API Server is Running.');
 });
@@ -126,7 +134,7 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
 });
 
 // Start Server
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log("==================================================");
     console.log(`✅ API Server successfully started on port ${PORT}`);
     console.log("==================================================");
@@ -145,4 +153,12 @@ app.listen(PORT, '0.0.0.0', () => {
     } else {
         console.log("✅ Database: Connected");
     }
+});
+
+// Graceful Shutdown
+(process as any).on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+    });
 });

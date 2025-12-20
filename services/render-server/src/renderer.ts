@@ -1,3 +1,4 @@
+
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
@@ -8,21 +9,36 @@ import { Buffer } from 'buffer';
 // Add type declaration for require to fix TS error
 declare const require: any;
 
-// Use require to avoid TS7016 error (missing type definitions)
-const ffmpegStatic = require('ffmpeg-static');
-const ffprobeStatic = require('ffprobe-static');
+let ffmpegPath = null;
+let ffprobePath = null;
 
-if (ffmpegStatic) {
-    ffmpeg.setFfmpegPath(ffmpegStatic);
-} else {
-    const systemFfmpeg = '/usr/bin/ffmpeg';
-    if (fs.existsSync(systemFfmpeg)) {
-        ffmpeg.setFfmpegPath(systemFfmpeg);
-    }
+try {
+    // @ts-ignore
+    const ffmpegStatic = require('ffmpeg-static');
+    if (ffmpegStatic) ffmpegPath = ffmpegStatic;
+} catch (e) {
+    console.warn("Failed to require ffmpeg-static:", e);
 }
 
-if (ffprobeStatic && ffprobeStatic.path) {
-    ffmpeg.setFfprobePath(ffprobeStatic.path);
+try {
+    // @ts-ignore
+    const ffprobeStatic = require('ffprobe-static');
+    if (ffprobeStatic && ffprobeStatic.path) ffprobePath = ffprobeStatic.path;
+} catch (e) {
+    console.warn("Failed to require ffprobe-static:", e);
+}
+
+// Fallback to system paths if static binaries fail
+if (ffmpegPath) {
+    ffmpeg.setFfmpegPath(ffmpegPath);
+    console.log(`FFmpeg binary set to: ${ffmpegPath}`);
+} else {
+    console.log("Using system FFmpeg");
+}
+
+if (ffprobePath) {
+    ffmpeg.setFfprobePath(ffprobePath);
+    console.log(`FFprobe binary set to: ${ffprobePath}`);
 }
 
 interface RenderJob {
