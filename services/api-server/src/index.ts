@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
@@ -31,13 +32,13 @@ app.use((req, res, next) => {
     next();
 });
 
-// CORS Configuration - Simplify for debugging
+// CORS Configuration - Allow all for troubleshooting 502s
 app.use(cors());
 
 // --- HEALTH CHECK (Required for Railway) ---
 // Railway checks '/' by default. We handle both GET and HEAD.
 const healthHandler = (req: any, res: any) => {
-    console.log(`[HealthCheck] Responding 200 OK to ${req.method} ${req.url}`);
+    // console.log(`[HealthCheck] Responding 200 OK to ${req.method} ${req.url}`); // Reduce noise
     res.status(200).send('Magistory API Server is Running.');
 };
 
@@ -124,10 +125,10 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-// Start Server - Bind to all interfaces by default (omit host) to support IPv6/IPv4 dual stack
-const server = app.listen(PORT, () => {
+// Start Server - EXPLICITLY BIND TO 0.0.0.0
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log("==================================================");
-    console.log(`✅ API Server successfully started on port ${PORT}`);
+    console.log(`✅ API Server successfully started on port ${PORT} (0.0.0.0)`);
     console.log("==================================================");
     
     // Config Checks

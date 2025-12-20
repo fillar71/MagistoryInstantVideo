@@ -1,3 +1,4 @@
+
 import express from 'express';
 import cors from 'cors';
 import { renderVideo } from './renderer';
@@ -21,7 +22,6 @@ app.use((req, res, next) => {
 });
 
 const healthHandler = (req: any, res: any) => {
-    console.log(`[Health] Check responding OK`);
     res.status(200).send('Render Server Online');
 };
 
@@ -90,9 +90,9 @@ app.get('/download/:jobId', (req, res) => {
     res.download(job.path, 'video.mp4');
 });
 
-// Start Server - Bind to all interfaces
-const server = app.listen(PORT, () => {
-    console.log(`✅ Render Server Live on port ${PORT}`);
+// Start Server - Bind to 0.0.0.0 explicitly
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Render Server Live on port ${PORT} (0.0.0.0)`);
 });
 
 const shutdown = () => {

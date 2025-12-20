@@ -100,12 +100,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } catch (error: any) {
             console.error("Login failed", error);
             
-            // AUTOMATIC OFFLINE FALLBACK
-            // Detect Network Error (Backend down or CORS issue)
-            if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
-                loginAsGuest();
-                return; 
-            }
+            // REMOVED AUTOMATIC GUEST FALLBACK HERE
+            // If the server returns 502 or Network Error, we want the Modal to show "Error" 
+            // instead of silently logging the user in as Guest.
             
             throw error;
         }
