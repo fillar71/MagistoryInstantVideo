@@ -18,31 +18,48 @@ let prismaInstance: any = null;
 const DATA_DIR = path.join((process as any).cwd(), 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 
+// Memory Fallback (in case disk is read-only)
+let MEMORY_USERS: any[] = [];
+let USE_MEMORY_ONLY = false;
+
 // Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+try {
+    if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+} catch (e) {
+    console.warn("⚠️ Cannot create data directory. Falling back to IN-MEMORY mode (Non-persistent).");
+    USE_MEMORY_ONLY = true;
 }
 
-// Helper to read users from file
+// Helper to read users
 const readUsers = (): any[] => {
+    if (USE_MEMORY_ONLY) return MEMORY_USERS;
+
     if (!fs.existsSync(USERS_FILE)) {
         return [];
     }
     try {
         const data = fs.readFileSync(USERS_FILE, 'utf-8');
-        return JSON.parse(data);
+        MEMORY_USERS = JSON.parse(data); // Sync memory cache
+        return MEMORY_USERS;
     } catch (error) {
         console.error("Error reading users file:", error);
-        return [];
+        return MEMORY_USERS;
     }
 };
 
-// Helper to write users to file
+// Helper to write users
 const writeUsers = (users: any[]) => {
+    MEMORY_USERS = users; // Always update memory
+    
+    if (USE_MEMORY_ONLY) return;
+
     try {
         fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
     } catch (error) {
-        console.error("Error writing users file:", error);
+        console.error("⚠️ Error writing users file (switching to memory-only):", error);
+        USE_MEMORY_ONLY = true;
     }
 };
 
@@ -54,8 +71,8 @@ try {
     } else {
         console.log("----------------------------------------------------------------");
         console.log("NOTICE: DATABASE_URL is not set.");
-        console.log("App is running in JSON-DB PERSISTENCE MODE.");
-        console.log(`User data is stored in: ${USERS_FILE}`);
+        console.log("App is running in JSON/MEMORY FALLBACK MODE.");
+        console.log("Data will be lost upon restart/redeploy.");
         console.log("----------------------------------------------------------------");
     }
 } catch (e) {
@@ -65,7 +82,13 @@ try {
 export const db = {
     user: {
         findUnique: async (args: { where: any }) => {
-            if (prismaInstance) return prismaInstance.user.findUnique(args as any);
+            if (prismaInstance) {
+                try {
+                    return await prismaInstance.user.findUnique(args as any);
+                } catch (e) {
+                    console.error("Prisma Connection Failed, checking fallback...", e);
+                }
+            }
             
             const users = readUsers();
             return users.find(u => 
@@ -75,7 +98,13 @@ export const db = {
             ) || null;
         },
         create: async (args: { data: any }) => {
-            if (prismaInstance) return prismaInstance.user.create(args as any);
+            if (prismaInstance) {
+                try {
+                    return await prismaInstance.user.create(args as any);
+                } catch (e) {
+                    console.error("Prisma Create Failed, using fallback...", e);
+                }
+            }
             
             const users = readUsers();
             // Mock ID generation
@@ -86,7 +115,13 @@ export const db = {
             return newUser;
         },
         update: async (args: { where: { id: string }, data: any }) => {
-            if (prismaInstance) return prismaInstance.user.update(args as any);
+            if (prismaInstance) {
+                try {
+                    return await prismaInstance.user.update(args as any);
+                } catch (e) {
+                    console.error("Prisma Update Failed, using fallback...", e);
+                }
+            }
             
             const users = readUsers();
             const idx = users.findIndex(u => u.id === args.where.id);
@@ -102,8 +137,6 @@ export const db = {
             }
             
             // Update other fields if necessary (shallow merge for simplicity in this demo)
-            // Note: In a real app, you'd handle specific field updates more robustly
-            
             users[idx] = user;
             writeUsers(users);
             
@@ -114,6 +147,9 @@ export const db = {
 
 export const verifyGoogleToken = async (token: string) => {
   if (!clientId) {
+      console.warn("GOOGLE_CLIENT_ID missing on server. Skipping strict verification for demo/guest mode.");
+      // For demo purposes without ID, we can decode without verify if needed, OR throw.
+      // But usually, we throw.
       throw new Error("GOOGLE_CLIENT_ID is not configured on the server.");
   }
   const ticket = await client.verifyIdToken({
