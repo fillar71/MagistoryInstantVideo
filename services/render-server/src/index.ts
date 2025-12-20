@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { renderVideo } from './renderer';
@@ -15,28 +14,28 @@ import { v4 as uuidv4 } from 'uuid';
 const app = express();
 app.enable('trust proxy');
 
-// 1. HEALTH CHECK PERTAMA
-app.get('/health', (req, res) => {
-    console.log(`[Health] Check received from ${req.ip}`);
-    res.status(200).send('OK')
-});
-app.get('/', (req, res) => {
-    console.log(`[Root] Check received from ${req.ip}`);
-    res.status(200).send('Render Server Online')
+// Middleware: Logger
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
+    next();
 });
 
-// 2. CORS
-app.use(cors({
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
-}) as any);
+const healthHandler = (req: any, res: any) => {
+    console.log(`[Health] Check responding OK`);
+    res.status(200).send('Render Server Online');
+};
+
+app.get('/', healthHandler);
+app.head('/', healthHandler);
+app.get('/health', healthHandler);
+
+// CORS
+app.use(cors());
 
 // 3. MEMORY OPTIMIZATION
 app.use(express.json({ limit: '100mb' }) as any);
 
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3002;
+const PORT = parseInt(process.env.PORT || '3002');
 const TEMP_DIR = path.join(os.tmpdir(), 'magistory-render');
 
 try {
@@ -91,13 +90,18 @@ app.get('/download/:jobId', (req, res) => {
     res.download(job.path, 'video.mp4');
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+// Start Server - Bind to all interfaces
+const server = app.listen(PORT, () => {
     console.log(`✅ Render Server Live on port ${PORT}`);
 });
 
-(process as any).on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
+const shutdown = () => {
+    console.log('SIGTERM/SIGINT received: closing HTTP server');
     server.close(() => {
         console.log('HTTP server closed');
+        (process as any).exit(0);
     });
-});
+};
+
+(process as any).on('SIGTERM', shutdown);
+(process as any).on('SIGINT', shutdown);

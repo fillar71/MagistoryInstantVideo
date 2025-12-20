@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
@@ -18,7 +17,7 @@ const app = express();
 app.enable('trust proxy');
 
 // CRITICAL: Railway assigns a random port in process.env.PORT. 
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
+const PORT = parseInt(process.env.PORT || '3001');
 
 console.log(`Starting API Server initialization... Port will be: ${PORT}`);
 
@@ -27,38 +26,30 @@ app.use(express.json({ limit: '5mb' }) as any);
 
 // Middleware: Logger
 app.use((req, res, next) => {
-    // Always log health checks in dev/debug mode to confirm load balancer connection
-    if (req.url === '/' || req.url === '/health') {
-        console.log(`[HealthCheck] ${req.method} ${req.url} from ${req.ip}`);
-    } else {
-        console.log(`[API] ${req.method} ${req.url}`);
-    }
+    // Log all requests to debug health check visibility
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
     next();
 });
 
-// CORS Configuration
-app.use(cors({
-    origin: true, // Allow all origins for robustness
-    credentials: true
-}) as any);
+// CORS Configuration - Simplify for debugging
+app.use(cors());
 
 // --- HEALTH CHECK (Required for Railway) ---
-// Note: Railway checks '/' by default unless configured otherwise.
-app.get('/', (req, res) => {
+// Railway checks '/' by default. We handle both GET and HEAD.
+const healthHandler = (req: any, res: any) => {
+    console.log(`[HealthCheck] Responding 200 OK to ${req.method} ${req.url}`);
     res.status(200).send('Magistory API Server is Running.');
-});
+};
 
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
+app.get('/', healthHandler);
+app.head('/', healthHandler);
+app.get('/health', healthHandler);
 
 // --- AUTH ROUTES ---
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase());
 
 app.post('/auth/google', async (req, res) => {
     const { token } = req.body;
-    
-    // Debugging log for auth attempts
     console.log("Auth attempt received.");
 
     if (!process.env.GOOGLE_CLIENT_ID) {
@@ -133,8 +124,8 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-// Start Server
-const server = app.listen(PORT, '0.0.0.0', () => {
+// Start Server - Bind to all interfaces by default (omit host) to support IPv6/IPv4 dual stack
+const server = app.listen(PORT, () => {
     console.log("==================================================");
     console.log(`✅ API Server successfully started on port ${PORT}`);
     console.log("==================================================");
@@ -142,7 +133,6 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     // Config Checks
     if (!process.env.GOOGLE_CLIENT_ID) {
         console.error("❌ CRITICAL WARNING: GOOGLE_CLIENT_ID is not set in Railway variables.");
-        console.error("   Google Login will FAIL (return 500) until this is set.");
     } else {
         console.log("✅ Google Auth: Configured");
     }
@@ -156,9 +146,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 });
 
 // Graceful Shutdown
-(process as any).on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
+const shutdown = () => {
+    console.log('SIGTERM/SIGINT received: closing HTTP server');
     server.close(() => {
         console.log('HTTP server closed');
+        (process as any).exit(0);
     });
-});
+};
+
+(process as any).on('SIGTERM', shutdown);
+(process as any).on('SIGINT', shutdown);
