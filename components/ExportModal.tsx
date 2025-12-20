@@ -11,7 +11,6 @@ interface ExportModalProps {
   title: string;
   segments: Segment[];
   audioTracks?: AudioClip[]; 
-  aspectRatio?: 'landscape' | 'portrait';
 }
 
 type ExportStatus = 'idle' | 'preparing' | 'sending' | 'rendering' | 'complete' | 'error';
@@ -20,7 +19,7 @@ type ExportQuality = '360p' | '720p' | '1080p';
 // Use RENDER_URL for heavy video processing
 const RENDER_URL = process.env.RENDER_URL || 'http://localhost:3002';
 
-const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segments, audioTracks = [], aspectRatio = 'landscape' }) => {
+const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segments, audioTracks = [] }) => {
     const [status, setStatus] = useState<ExportStatus>('idle');
     const [statusText, setStatusText] = useState('');
     const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -79,7 +78,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             if (segment.narration_text && (!segment.wordTimings || segment.wordTimings.length === 0)) {
                 // If audio exists, use its duration, else use segment duration
                 const duration = segment.duration;
-                // Calculate linear timings as fallback (Ensures subtitles are generated even without AI alignment)
+                // Calculate linear timings as fallback
                 segment.wordTimings = estimateWordTimings(segment.narration_text, duration);
             }
         }
@@ -98,13 +97,6 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
             case '360p': width = 640; height = 360; break;
             case '720p': width = 1280; height = 720; break;
             case '1080p': width = 1920; height = 1080; break;
-        }
-
-        // SWAP DIMENSIONS FOR PORTRAIT MODE
-        if (aspectRatio === 'portrait') {
-            const temp = width;
-            width = height;
-            height = temp;
         }
 
         return {
@@ -272,15 +264,12 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                                     </button>
                                 ))}
                              </div>
-                             <div className="mt-3 text-xs text-gray-400 text-right">
-                                 Format: <span className="text-white font-bold uppercase">{aspectRatio}</span>
-                             </div>
                          </div>
 
                          <div className="bg-purple-900/20 border border-purple-500/30 p-4 rounded-md text-left flex items-center gap-3">
                             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.6)]"></div>
                             <p className="text-gray-200 text-sm">
-                                Rendering will be performed on the <b>Cloud Server</b>. Subtitles will be baked in.
+                                Rendering will be performed on the <b>Cloud Server</b>.
                             </p>
                         </div>
                         <button 
@@ -304,7 +293,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                 {status === 'complete' && videoUrl && (
                      <div className="text-center">
                         <p className="text-xl font-semibold text-green-400 mb-4">Render Complete!</p>
-                        <video src={videoUrl} controls className={`w-full rounded-md mb-4 bg-black shadow-lg ${aspectRatio === 'portrait' ? 'max-h-96 w-auto mx-auto' : 'max-h-64'}`}></video>
+                        <video src={videoUrl} controls className="w-full rounded-md mb-4 max-h-64 bg-black shadow-lg"></video>
                         <div className="flex gap-2">
                             <a href={videoUrl} download={`${title.replace(/[^a-z0-9]/gi, '_')}_${quality}.mp4`} className="flex-1 py-3 bg-green-600 hover:bg-green-700 rounded-md text-white font-semibold flex items-center justify-center gap-2 transition-colors">
                                 <DownloadIcon /> Download MP4

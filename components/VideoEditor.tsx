@@ -10,7 +10,7 @@ import ResourcePanel from './ResourcePanel';
 import AIToolsModal from './AIToolsModal';
 import ExportModal from './ExportModal';
 import VideoPreviewModal from './VideoPreviewModal';
-import { ChevronLeftIcon, ExportIcon, PlayIcon, SaveIcon } from './icons';
+import { ChevronLeftIcon, ExportIcon, PlayIcon, SaveIcon, ChevronDownIcon } from './icons';
 import { estimateWordTimings, getAudioDuration, createWavBlobUrl } from '../utils/media';
 import { generateSpeechFromText } from '../services/geminiService';
 import { saveProject } from '../services/projectService';
@@ -28,7 +28,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const [segments, setSegments] = useState<Segment[]>(initialScript.segments);
   const [audioTracks, setAudioTracks] = useState<AudioClip[]>(initialScript.audioTracks || []);
   const [title, setTitle] = useState(initialScript.title);
-  const [aspectRatio, setAspectRatio] = useState<'landscape' | 'portrait'>(initialScript.aspectRatio || 'landscape');
 
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(segments.length > 0 ? segments[0].id : null);
   const [activeAudioTrackId, setActiveAudioTrackId] = useState<string | null>(null);
@@ -48,6 +47,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   
   const [showExportModal, setShowExportModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // Menu Dropdown States
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const saveMenuRef = useRef<HTMLDivElement>(null);
 
   // Saving State
   const [isSaving, setIsSaving] = useState(false);
@@ -69,6 +72,17 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const totalDuration = segments.reduce((acc, s) => acc + s.duration, 0);
   const activeSegment = segments.find(s => s.id === activeSegmentId) || null;
   const activeAudioTrack = audioTracks.find(t => t.id === activeAudioTrackId) || null;
+
+  // --- CLICK OUTSIDE HANDLER FOR DROPDOWN ---
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        if (saveMenuRef.current && !saveMenuRef.current.contains(event.target as Node)) {
+            setIsSaveMenuOpen(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // --- PLAYBACK LOGIC ---
   const animate = (time: number) => {
@@ -118,8 +132,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
               title,
               segments,
               audioTracks,
-              backgroundMusicKeywords: initialScript.backgroundMusicKeywords,
-              aspectRatio: aspectRatio
+              backgroundMusicKeywords: initialScript.backgroundMusicKeywords
           };
           const saved = saveProject(projectData);
           setProjectId(saved.id); // Update ID if it was new
@@ -321,7 +334,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   }
 
   // --- ROBUST SEQUENTIAL GENERATION HANDLER ---
-  const handleGenerateAllNarrations = async (settings?: { voice: string, speed: number }) => {
+  const handleGenerateAllNarrations = async () => {
       // 1. Identify work
       const indicesToProcess = segments
           .map((s, i) => (s.narration_text && !s.audioUrl ? i : -1))
@@ -345,9 +358,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       
       let completedCount = 0;
       let currentSegmentsState = [...segments];
-      
-      const selectedVoice = settings?.voice || 'Kore';
-      const selectedSpeed = settings?.speed || 1.0;
 
       // 4. Process Loop
       for (const idx of indicesToProcess) {
@@ -359,8 +369,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           const seg = currentSegmentsState[idx];
           
           try {
-              // Generate - passing voice and speed
-              const base64Audio = await generateSpeechFromText(seg.narration_text, selectedVoice, selectedSpeed);
+              // Generate - geminiService already handles reasonable retries
+              const base64Audio = await generateSpeechFromText(seg.narration_text);
               const wavUrl = createWavBlobUrl(base64Audio);
               const duration = await getAudioDuration(wavUrl);
               
@@ -386,6 +396,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           } catch (e: any) {
               console.error(`Failed to generate audio for segment ${idx}:`, e);
               // In bulk mode, we skip failed items and continue to the next
+              // Maybe add a toast notification here later
           }
       }
       
@@ -462,20 +473,58 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                                 totalDuration={totalDuration}
                                 onPlayPause={handlePlayPause}
                                 onSeek={handleSeek}
-                                aspectRatio={aspectRatio} // PASS ASPECT RATIO
                              />
                         )}
                         {/* Header Actions Overlay */}
-                        <div className="absolute top-4 right-4 flex gap-2">
-                             <button onClick={handleSaveProject} disabled={isSaving} className="bg-gray-800/80 hover:bg-green-700 text-white p-2 rounded-full backdrop-blur-sm transition-colors flex items-center justify-center" title="Save Project">
-                                 {isSaving ? <LoadingSpinner /> : <SaveIcon className="w-5 h-5" />}
-                             </button>
-                             <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm" title="Fullscreen Preview">
+                        <div className="absolute top-4 right-4 flex gap-2 z-50">
+                             
+                             {/* Preview Button */}
+                             <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm shadow-md transition-colors" title="Fullscreen Preview">
                                  <PlayIcon className="w-5 h-5" />
                              </button>
-                             <button onClick={() => setShowExportModal(true)} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full font-bold shadow-lg flex items-center gap-2" title="Export Video">
-                                 <ExportIcon className="w-5 h-5" /> Export
-                             </button>
+
+                             {/* Save/Export Dropdown Button */}
+                             <div className="relative" ref={saveMenuRef}>
+                                <button 
+                                    onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
+                                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full font-bold shadow-lg flex items-center gap-2 transition-colors border border-purple-500/50"
+                                >
+                                    <span>Save/Export</span>
+                                    <ChevronDownIcon className={`w-4 h-4 transition-transform duration-200 ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {isSaveMenuOpen && (
+                                    <div className="absolute right-0 top-full mt-2 w-48 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-1 z-50 overflow-hidden animate-fade-in">
+                                        <button 
+                                            onClick={() => {
+                                                handleSaveProject();
+                                                setIsSaveMenuOpen(false);
+                                            }}
+                                            disabled={isSaving}
+                                            className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors border-b border-gray-700/50"
+                                        >
+                                            {isSaving ? <LoadingSpinner /> : <SaveIcon className="w-4 h-4 text-green-400" />}
+                                            <div className="flex flex-col">
+                                                <span className="font-semibold">Save Project</span>
+                                                <span className="text-[10px] text-gray-400">Save progress to server</span>
+                                            </div>
+                                        </button>
+                                        <button 
+                                            onClick={() => {
+                                                setShowExportModal(true);
+                                                setIsSaveMenuOpen(false);
+                                            }}
+                                            className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors"
+                                        >
+                                            <ExportIcon className="w-4 h-4 text-blue-400" />
+                                            <div className="flex flex-col">
+                                                <span className="font-semibold">Export Video</span>
+                                                <span className="text-[10px] text-gray-400">Render final MP4</span>
+                                            </div>
+                                        </button>
+                                    </div>
+                                )}
+                             </div>
                         </div>
                      </div>
                      
@@ -555,7 +604,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             onUpdateAudio={handleAIToolsUpdateAudio}
             initialTab={activeAIToolTab}
             allSegments={segments}
-            onGenerateAllNarrations={handleGenerateAllNarrations} 
+            onGenerateAllNarrations={handleGenerateAllNarrations} // Updated for robust sequential processing
             generationProgress={generationProgress}
             onCancelGeneration={handleCancelGeneration}
         />
@@ -566,7 +615,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             title={title}
             segments={segments}
             audioTracks={audioTracks}
-            aspectRatio={aspectRatio}
         />
 
         <VideoPreviewModal 

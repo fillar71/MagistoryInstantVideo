@@ -17,13 +17,12 @@ interface PreviewWindowProps {
   totalDuration: number;
   onPlayPause: () => void;
   onSeek: (time: number) => void;
-  aspectRatio?: 'landscape' | 'portrait';
   // ... pass-through props retained for compatibility but unused directly in this simplified view
   [key: string]: any; 
 }
 
 const PreviewWindow: React.FC<PreviewWindowProps> = ({ 
-    title, onTitleChange, segments, audioTracks = [], currentTime, isPlaying, totalDuration, onPlayPause, onSeek, aspectRatio = 'landscape'
+    title, onTitleChange, segments, audioTracks = [], currentTime, isPlaying, totalDuration, onPlayPause, onSeek
 }) => {
     // Segment audio player
     const segmentAudioRef = useRef<HTMLAudioElement>(null);
@@ -147,11 +146,6 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         )
     }
 
-    // Determine Container Aspect Ratio Class
-    const aspectClass = aspectRatio === 'portrait' 
-        ? 'aspect-[9/16] h-full shadow-[0_0_50px_rgba(0,0,0,0.5)]' 
-        : 'aspect-video w-full shadow-lg';
-
     return (
         <div className="flex flex-col h-full w-full bg-[#0a0a0a] relative">
             {/* Title Overlay */}
@@ -164,13 +158,13 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
             </div>
 
             {/* Video Stage */}
-            <div className="flex-grow flex items-center justify-center relative overflow-hidden group py-4">
+            <div className="flex-grow flex items-center justify-center relative overflow-hidden group">
                 {currentRenderState ? (
-                    <div className={`relative ${aspectClass} max-h-full bg-black mx-auto transition-all duration-300`}>
+                    <div className="relative aspect-[9/16] md:aspect-video h-full max-h-full bg-black shadow-lg">
                         {currentRenderState.clip.type === 'video' ? (
-                            <video key={currentRenderState.clip.url} src={currentRenderState.clip.url} className="w-full h-full object-cover" autoPlay muted loop playsInline />
+                            <video key={currentRenderState.clip.url} src={currentRenderState.clip.url} className="w-full h-full object-contain" autoPlay muted loop playsInline />
                         ) : (
-                            <img src={currentRenderState.clip.url} className="w-full h-full object-cover" />
+                            <img src={currentRenderState.clip.url} className="w-full h-full object-contain" />
                         )}
                         <div className={`absolute inset-0 p-8 flex flex-col justify-end items-center pointer-events-none`}>
                             {renderKaraokeText()}
@@ -181,7 +175,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                 )}
 
                 {/* Floating Controls */}
-                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-6 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-black/50 px-6 py-2 rounded-full backdrop-blur-sm z-30">
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-6 opacity-0 group-hover:opacity-100 transition-all duration-300 bg-black/50 px-6 py-2 rounded-full backdrop-blur-sm">
                     <button onClick={() => onSeek(Math.max(0, currentTime - 5))} className="text-white hover:scale-110"><ChevronLeftIcon /></button>
                     <button onClick={onPlayPause} className="text-white hover:scale-110">
                         {isPlaying ? <PauseIcon className="w-8 h-8" /> : <PlayIcon className="w-8 h-8" />}

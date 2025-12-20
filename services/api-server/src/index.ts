@@ -1,46 +1,41 @@
-
 import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
-import fs from 'fs';
-import path from 'path';
 
-// Handle unhandled exceptions
+// Handle unhandled exceptions to prevent hard crashes without logs
 (process as any).on('uncaughtException', (err: any) => {
     console.error('CRITICAL UNCAUGHT EXCEPTION:', err);
 });
 
-// Pastikan folder data tersedia sebelum server berjalan (Krusial untuk JSON-DB)
-const DATA_DIR = path.join((process as any).cwd(), 'data');
-if (!fs.existsSync(DATA_DIR)) {
-    try {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-        console.log(`✅ Data directory created at: ${DATA_DIR}`);
-    } catch (err) {
-        console.error("❌ Failed to create data directory:", err);
-    }
-}
-
 const app = express();
+
+// Enable Trust Proxy for Railway/Heroku
 app.enable('trust proxy');
 
-// Railway menggunakan variabel PORT
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
+// CRITICAL: Railway assigns a random port in process.env.PORT. 
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001;
 
-app.use(express.json({ limit: '10mb' }) as any);
+console.log(`Starting API Server... Port: ${PORT}`);
 
+// Increase limit for uploads
+app.use(express.json({ limit: '5mb' }) as any);
+
+// Middleware: Logger
 app.use((req, res, next) => {
+    // Only log non-health checks to avoid noise, or log all for debugging now
     if (req.url !== '/health' && req.url !== '/') {
         console.log(`[API] ${req.method} ${req.url}`);
     }
     next();
 });
 
+// CORS Configuration
 app.use(cors({
-    origin: true, 
+    origin: true, // Allow all origins for robustness
     credentials: true
 }) as any);
 
+// --- HEALTH CHECK (Required for Railway) ---
 app.get('/', (req, res) => {
     res.status(200).send('Magistory API Server is Running.');
 });
@@ -49,13 +44,17 @@ app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
 
+// --- AUTH ROUTES ---
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase());
 
 app.post('/auth/google', async (req, res) => {
     const { token } = req.body;
     
+    // Debugging log for auth attempts
+    console.log("Auth attempt received.");
+
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.error("LOGIN FAILED: GOOGLE_CLIENT_ID is missing.");
+        console.error("LOGIN FAILED: GOOGLE_CLIENT_ID is missing in server environment variables.");
         return res.status(500).json({ error: "Server misconfiguration: Missing Google Client ID." });
     }
 
@@ -71,6 +70,7 @@ app.post('/auth/google', async (req, res) => {
             displayCredits = 999999;
         }
 
+        console.log(`User logged in: ${user.email}`);
         res.json({ token: sessionToken, user: { id: user.id, name: user.name, email: user.email, credits: displayCredits } });
     } catch (error: any) {
         console.error("Auth Error:", error.message);
@@ -95,6 +95,7 @@ app.get('/user/me', authMiddleware, async (req: any, res) => {
     }
 });
 
+// --- CREDIT SYSTEM ROUTES ---
 app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     const { action, cost } = req.body;
     const userId = req.user.id;
@@ -104,6 +105,7 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
         if (!user) return res.status(404).json({ error: "User not found" });
 
         if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+            console.log(`Admin action by ${user.email}: ${action} (Cost bypassed)`);
             return res.json({ success: true, remainingCredits: 999999 });
         }
 
@@ -123,15 +125,24 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
+// Start Server
 app.listen(PORT, '0.0.0.0', () => {
     console.log("==================================================");
-    console.log(`🚀 API Server successfully started on port ${PORT}`);
+    console.log(`✅ API Server successfully started on port ${PORT}`);
     console.log("==================================================");
     
+    // Config Checks
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.error("❌ GOOGLE_CLIENT_ID is not set.");
+        console.error("❌ CRITICAL WARNING: GOOGLE_CLIENT_ID is not set in Railway variables.");
+        console.error("   Google Login will FAIL (return 500) until this is set.");
+    } else {
+        console.log("✅ Google Auth: Configured");
     }
+
     if (!process.env.DATABASE_URL) {
-        console.log("⚠️ Running in LOCAL JSON PERSISTENCE mode.");
+        console.log("⚠️  NOTICE: DATABASE_URL is not set.");
+        console.log("   App is running in LOCAL JSON MODE. Data will reset on redeploy.");
+    } else {
+        console.log("✅ Database: Connected");
     }
 });
