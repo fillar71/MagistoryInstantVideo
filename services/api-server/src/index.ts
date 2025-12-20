@@ -14,8 +14,8 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 
 const app = express();
 
-// Enable Trust Proxy for Railway/Heroku
-app.enable('trust proxy');
+// Enable Trust Proxy for Railway/Heroku (Important for correct IP logging behind LB)
+app.set('trust proxy', 1);
 
 // CRITICAL: Railway assigns a random port in process.env.PORT. 
 const PORT = parseInt(process.env.PORT || '3001');
@@ -23,22 +23,23 @@ const PORT = parseInt(process.env.PORT || '3001');
 console.log(`Starting API Server initialization... Port will be: ${PORT}`);
 
 // Increase limit for uploads
-app.use(express.json({ limit: '5mb' }) as any);
+app.use(express.json({ limit: '10mb' }) as any);
 
 // Middleware: Logger
 app.use((req, res, next) => {
-    // Log all requests to debug health check visibility
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
     next();
 });
 
-// CORS Configuration - Allow all for troubleshooting 502s
-app.use(cors());
+// CORS Configuration - Permissive for troubleshooting
+app.use(cors({
+    origin: '*', // Allow all origins to fix "Network Error" due to CORS
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// --- HEALTH CHECK (Required for Railway) ---
-// Railway checks '/' by default. We handle both GET and HEAD.
+// --- HEALTH CHECK ---
 const healthHandler = (req: any, res: any) => {
-    // console.log(`[HealthCheck] Responding 200 OK to ${req.method} ${req.url}`); // Reduce noise
     res.status(200).send('Magistory API Server is Running.');
 };
 
@@ -54,7 +55,7 @@ app.post('/auth/google', async (req, res) => {
     console.log("Auth attempt received.");
 
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.error("LOGIN FAILED: GOOGLE_CLIENT_ID is missing in server environment variables.");
+        console.error("LOGIN FAILED: GOOGLE_CLIENT_ID is missing.");
         return res.status(500).json({ error: "Server misconfiguration: Missing Google Client ID." });
     }
 
@@ -125,10 +126,10 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-// Start Server - EXPLICITLY BIND TO 0.0.0.0
-const server = app.listen(PORT, '0.0.0.0', () => {
+// Start Server without explicit host (allows IPv6/IPv4 binding)
+const server = app.listen(PORT, () => {
     console.log("==================================================");
-    console.log(`✅ API Server successfully started on port ${PORT} (0.0.0.0)`);
+    console.log(`✅ API Server successfully started on port ${PORT}`);
     console.log("==================================================");
     
     // Config Checks
@@ -139,12 +140,17 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     }
 
     if (!process.env.DATABASE_URL) {
-        console.log("⚠️  NOTICE: DATABASE_URL is not set.");
-        console.log("   App is running in LOCAL JSON MODE. Data will reset on redeploy.");
+        console.log("⚠️  NOTICE: DATABASE_URL is not set. Using local JSON DB.");
     } else {
         console.log("✅ Database: Connected");
     }
 });
+
+// --- CRITICAL FIX FOR 502 BAD GATEWAY ---
+// Increase Keep-Alive timeout to be larger than the Load Balancer's timeout (usually 60s)
+// This prevents the Node server from abruptly closing connections that the LB thinks are open.
+server.keepAliveTimeout = 120 * 1000;
+server.headersTimeout = 120 * 1000;
 
 // Graceful Shutdown
 const shutdown = () => {

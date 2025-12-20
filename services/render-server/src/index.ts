@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid';
 });
 
 const app = express();
-app.enable('trust proxy');
+app.set('trust proxy', 1);
 
 // Middleware: Logger
 app.use((req, res, next) => {
@@ -29,8 +29,11 @@ app.get('/', healthHandler);
 app.head('/', healthHandler);
 app.get('/health', healthHandler);
 
-// CORS
-app.use(cors());
+// CORS - Permissive for render server
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'OPTIONS']
+}));
 
 // 3. MEMORY OPTIMIZATION
 app.use(express.json({ limit: '100mb' }) as any);
@@ -90,10 +93,14 @@ app.get('/download/:jobId', (req, res) => {
     res.download(job.path, 'video.mp4');
 });
 
-// Start Server - Bind to 0.0.0.0 explicitly
-const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Render Server Live on port ${PORT} (0.0.0.0)`);
+// Start Server
+const server = app.listen(PORT, () => {
+    console.log(`✅ Render Server Live on port ${PORT}`);
 });
+
+// --- CRITICAL FIX FOR 502 BAD GATEWAY ---
+server.keepAliveTimeout = 120 * 1000;
+server.headersTimeout = 120 * 1000;
 
 const shutdown = () => {
     console.log('SIGTERM/SIGINT received: closing HTTP server');
