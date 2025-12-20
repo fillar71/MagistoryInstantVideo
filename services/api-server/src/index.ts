@@ -140,7 +140,9 @@ const server = app.listen(PORT, () => {
     }
 
     if (!process.env.DATABASE_URL) {
-        console.log("⚠️  NOTICE: DATABASE_URL is not set. Using local JSON DB.");
+        console.log("ℹ️  INFO: DATABASE_URL is not set. Running in Fallback Mode.");
+        console.log("   Data will be stored in local file/memory and reset on redeploy.");
+        console.log("   (This is normal for testing. Add PostgreSQL for persistence.)");
     } else {
         console.log("✅ Database: Connected");
     }
