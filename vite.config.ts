@@ -24,6 +24,20 @@ export default defineConfig(({ mode }) => {
       
       'process.env': JSON.stringify({})
     },
+    build: {
+      // Increase warning limit to 1000kB to verify build passes without noise
+      chunkSizeWarningLimit: 1000, 
+      rollupOptions: {
+        output: {
+          // Manual chunking to split large vendor files
+          manualChunks: {
+            vendor: ['react', 'react-dom'],
+            genai: ['@google/genai'], // Split GenAI SDK into its own file
+            utils: ['axios', 'uuid', 'jwt-decode'] // Common utils
+          }
+        }
+      }
+    },
     server: {
       host: true,
     }
