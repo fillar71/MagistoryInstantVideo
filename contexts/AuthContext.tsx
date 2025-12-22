@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -27,8 +26,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
     const [isLoading, setIsLoading] = useState(true);
 
-    // Use API_URL for Auth and Credits
-    const apiUrl = process.env.API_URL || 'http://localhost:3001';
+    // Get API URL and sanitize trailing slash
+    const apiUrlRaw = process.env.API_URL || 'http://localhost:3001';
+    const apiUrl = apiUrlRaw.replace(/\/$/, '');
+
+    // DIAGNOSTIC LOG (Only visible in browser console)
+    useEffect(() => {
+        if (window.location.hostname !== 'localhost' && apiUrl.includes('localhost')) {
+            console.error("🚨 CONFIGURATION ERROR: You are running on Production (Vercel) but API_URL is set to localhost.");
+            console.error("🚨 FIX: Set 'API_URL' in Vercel Environment Variables to your Railway URL (e.g. https://magistory-api-server.up.railway.app)");
+        } else {
+            console.log("🔌 Connected to API:", apiUrl);
+        }
+    }, [apiUrl]);
 
     useEffect(() => {
         if (token) {
@@ -39,7 +49,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [token]);
 
     const refreshUser = async () => {
-        // OFFLINE MODE CHECK: If token is a mock token, restore mock user
         if (token && token.startsWith('mock-session-')) {
              if (!user) {
                  setUser({
@@ -59,15 +68,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
             setUser(res.data);
         } catch (error: any) {
-            console.error("Failed to fetch user", error);
-            // Don't auto-logout immediately on network error (allow retry), unless it's a 401/403
+            console.warn("Failed to refresh session:", error.message);
             if (error.response && (error.response.status === 401 || error.response.status === 403)) {
                  logout();
-            } else if ((error as any).code === "ERR_NETWORK") {
-                // If network error during refresh, maybe we keep the user state if it existed, or do nothing
-                // For now, let's stop loading.
             } else {
-                logout();
+                // Network error? Keep user logged out but stop loading
             }
         } finally {
             setIsLoading(false);
@@ -75,21 +80,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const loginAsGuest = () => {
-        console.warn("Entering Offline Mode manually.");
         const mockToken = `mock-session-${Date.now()}`;
         const mockUser = {
             id: 'demo-user',
             name: 'Guest (Offline Mode)',
             email: 'guest@magistory.com',
-            credits: 100 // Free credits for offline usage
+            credits: 100 
         };
-        
         localStorage.setItem('auth_token', mockToken);
         setToken(mockToken);
         setUser(mockUser);
     };
 
     const login = async (googleToken: string) => {
+        console.log(`Sending login request to: ${apiUrl}/auth/google`);
         try {
             const res = await axios.post(`${apiUrl}/auth/google`, { token: googleToken });
             const { token: sessionToken, user: userData } = res.data;
@@ -98,11 +102,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setToken(sessionToken);
             setUser(userData);
         } catch (error: any) {
-            console.error("Login failed", error);
+            console.error("Login Error Details:", error);
             
-            // REMOVED AUTOMATIC GUEST FALLBACK HERE
-            // If the server returns 502 or Network Error, we want the Modal to show "Error" 
-            // instead of silently logging the user in as Guest.
+            if (error.code === "ERR_NETWORK") {
+                const msg = `Network Error: Cannot connect to ${apiUrl}. Check if the backend is running and allowed by CORS.`;
+                console.error(msg);
+                throw new Error(msg);
+            }
             
             throw error;
         }
@@ -117,7 +123,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const deductCredits = async (cost: number, action: string): Promise<boolean> => {
         if (!user || !token) return false;
         
-        // Offline Mode Handler
         if (token.startsWith('mock-session-')) {
             if (user.credits >= cost) {
                 const newCredits = user.credits - cost;
@@ -141,15 +146,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return false;
         } catch (error: any) {
-            if (error.response?.status === 403) {
-                alert("Insufficient Credits! Please upgrade your plan.");
-            } else if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
-                 // If backend drops mid-session, allow action optimistically
-                 console.warn("Network error during credit deduction. Allowing action optimistically.");
-                 return true;
-            } else {
-                console.error("Transaction failed", error);
-            }
+            console.error("Transaction failed", error);
+            // Optimistic success on network error to not block user flow
+            if (error.code === 'ERR_NETWORK') return true;
             return false;
         }
     };

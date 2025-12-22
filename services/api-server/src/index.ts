@@ -13,47 +13,53 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 
 const app = express();
 
-// Enable Trust Proxy for Railway/Heroku/Render load balancers
-app.set('trust proxy', 1);
+// --- 1. CRITICAL: HEALTH CHECK MUST BE FIRST ---
+// This ensures Railway/Render load balancers get a 200 OK immediately
+// before any heavy middleware (CORS, BodyParser, DB) runs.
+const healthHandler = (req: any, res: any) => {
+    res.status(200).send('Magistory API Server is Running.');
+};
+app.get('/', healthHandler);
+app.head('/', healthHandler);
+app.get('/health', healthHandler);
 
-// CRITICAL: Railway/Render assigns a port in process.env.PORT. 
+// --- 2. CONFIGURATION ---
+app.set('trust proxy', 1); // Required for secure cookies behind proxy
+
 const rawPort = process.env.PORT || '3001';
 const PORT = parseInt(rawPort, 10) || 3001;
 
-console.log(`Starting API Server initialization... Configured Port: ${PORT}`);
+console.log(`Initializing Server on Port: ${PORT}`);
 
-// Increase limit for uploads (e.g. base64 images)
-app.use(express.json({ limit: '10mb' }) as any);
-
-// Middleware: Logger
-app.use((req, res, next) => {
-    // Log health checks sparsely to avoid clutter, but helpful for debugging startup
-    if (req.url === '/' || req.url === '/health') {
-        console.log(`[Health Check] ${req.method} ${req.url} from ${req.ip}`);
-    } else {
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
-    }
-    next();
-});
-
-// CORS Configuration - Fixed for Network Error issues
-// origin: true allows the requesting domain dynamically, which works better with credentials than '*'
+// --- 3. CORS (Must be before Body Parser) ---
+// Using a dynamic origin function allows connections from Vercel, Localhost, etc.
+// while satisfying the "Access-Control-Allow-Credentials: true" requirement.
 app.use(cors({
-    origin: true, 
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl, or server-to-server)
+        if (!origin) return callback(null, true);
+        // Allow all origins (Permissive for troubleshooting "Network Error")
+        return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
-// --- HEALTH CHECK ---
-// Must be robust and return 200 immediately to prevent Railway from killing the pod.
-const healthHandler = (req: any, res: any) => {
-    res.status(200).send('Magistory API Server is Running.');
-};
+// Explicitly handle OPTIONS preflight for all routes
+app.options('*', cors() as any);
 
-app.get('/', healthHandler);
-app.head('/', healthHandler);
-app.get('/health', healthHandler);
+// --- 4. BODY PARSER ---
+// Increase limit for uploads
+app.use(express.json({ limit: '10mb' }) as any);
+
+// --- 5. LOGGING MIDDLEWARE ---
+app.use((req, res, next) => {
+    // Skip logging for health checks to keep logs clean
+    if (req.path === '/' || req.path === '/health') return next();
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip} | Origin: ${req.headers.origin || 'N/A'}`);
+    next();
+});
 
 // --- AUTH ROUTES ---
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim().toLowerCase());
@@ -61,16 +67,18 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim
 app.post('/auth/google', async (req, res) => {
     const { token } = req.body;
     
-    if (!process.env.GOOGLE_CLIENT_ID) {
-        console.warn("LOGIN WARNING: GOOGLE_CLIENT_ID is missing on server.");
+    console.log("Received Login Request. Body token length:", token ? token.length : 'null');
+
+    if (!token) {
+        return res.status(400).json({ error: "Missing token in request body" });
     }
 
     try {
-        console.log("Verifying Google Token...");
         const payload = await verifyGoogleToken(token);
         if (!payload || !payload.email) throw new Error("Invalid Google Token payload");
 
-        console.log(`Token valid. Finding user: ${payload.email}`);
+        console.log(`Token verified for: ${payload.email}`);
+        
         const user = await findOrCreateUser(payload.email, payload.name || 'User', payload.sub);
         const sessionToken = generateSessionToken(user);
 
@@ -82,7 +90,8 @@ app.post('/auth/google', async (req, res) => {
         console.log(`Login successful: ${user.email}`);
         res.json({ token: sessionToken, user: { id: user.id, name: user.name, email: user.email, credits: displayCredits } });
     } catch (error: any) {
-        console.error("Auth Error:", error.message, error.stack);
+        console.error("Auth Route Error:", error.message);
+        // Return 401 but include message to help debug on frontend
         res.status(401).json({ error: "Authentication failed: " + error.message });
     }
 });
@@ -137,32 +146,25 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
 // Start Server - BIND TO 0.0.0.0 (Required for Railway)
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log("==================================================");
-    console.log(`✅ API Server successfully started on port ${PORT} (0.0.0.0)`);
-    console.log(`✅ Health check available at http://0.0.0.0:${PORT}/`);
+    console.log(`✅ API Server listening on 0.0.0.0:${PORT}`);
+    console.log(`✅ Health Check: http://0.0.0.0:${PORT}/`);
     console.log("==================================================");
     
-    // Config Checks
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set.");
-    } else {
-        console.log("✅ Google Auth: Configured");
+        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set. Google Login might default to decoding-only (insecure).");
     }
-
+    
     if (!process.env.DATABASE_URL) {
-        console.log("ℹ️ INFO: DATABASE_URL is not set. Running in Fallback Mode (Memory/JSON).");
-    } else {
-        console.log("✅ Database URL Detected (Attempting Prisma Mode)");
+        console.log("ℹ️ INFO: DATABASE_URL is not set. Using JSON/Memory DB.");
     }
 });
 
-// Handle startup errors (like EADDRINUSE)
 server.on('error', (err: any) => {
     console.error("❌ SERVER FAILED TO START:", err);
     (process as any).exit(1);
 });
 
-// --- KEEP-ALIVE TIMEOUT FIX FOR 502s ---
-// Ensure Node's keep-alive is slightly longer than the Load Balancer's timeout (usually 60s)
+// --- KEEP-ALIVE CONFIG ---
 server.keepAliveTimeout = 120 * 1000;
 server.headersTimeout = 120 * 1000;
 
