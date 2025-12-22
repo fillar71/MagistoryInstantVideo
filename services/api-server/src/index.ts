@@ -13,7 +13,7 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 
 const app = express();
 
-// --- 1. CRITICAL: HEALTH CHECK MUST BE FIRST ---
+// --- 1. HEALTH CHECK (Fastest Response) ---
 const healthHandler = (req: any, res: any) => {
     res.status(200).send('Magistory API Server is Running.');
 };
@@ -21,38 +21,37 @@ app.get('/', healthHandler);
 app.head('/', healthHandler);
 app.get('/health', healthHandler);
 
-// --- 2. CONFIGURATION ---
-app.set('trust proxy', 1);
-
-const rawPort = process.env.PORT || '3001';
-const PORT = parseInt(rawPort, 10) || 3001;
-
-console.log(`Initializing Server on Port: ${PORT}`);
-
-// --- 3. MANUAL CORS MIDDLEWARE (MOST ROBUST) ---
-// This guarantees headers are set correctly for Vercel -> Railway communication
+// --- 2. ROBUST CORS MIDDLEWARE ---
+// Fixing the "Network Error" by handling Origin and Credentials correctly per browser spec.
 app.use((req, res, next) => {
     const origin = req.headers.origin;
     
-    // Allow any origin that connects (Reflect Origin)
+    // If an origin is sent, we reflect it and allow credentials.
+    // This allows Vercel, Localhost, or any client to connect reliably.
     if (origin) {
         res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
     } else {
-        // Fallback for tools like Postman or generic requests
+        // If no origin (e.g. Postman), allow wildcard but NO credentials
         res.setHeader('Access-Control-Allow-Origin', '*');
     }
 
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
 
-    // Handle Preflight immediately
+    // Handle Preflight OPTIONS immediately
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
     next();
 });
+
+// --- 3. CONFIGURATION ---
+app.set('trust proxy', 1);
+const rawPort = process.env.PORT || '3001';
+const PORT = parseInt(rawPort, 10) || 3001;
 
 // --- 4. BODY PARSER ---
 app.use(express.json({ limit: '10mb' }) as any);
@@ -77,10 +76,15 @@ app.post('/auth/google', async (req, res) => {
     }
 
     try {
+        // Verify token (with fallback to simple decode if env vars are missing)
         const payload = await verifyGoogleToken(token);
-        if (!payload || !payload.email) throw new Error("Invalid Google Token payload");
+        
+        if (!payload || !payload.email) {
+            console.error("Token payload invalid:", payload);
+            throw new Error("Invalid Google Token payload");
+        }
 
-        console.log(`Token verified for: ${payload.email}`);
+        console.log(`Token accepted for: ${payload.email}`);
         
         const user = await findOrCreateUser(payload.email, payload.name || 'User', payload.sub);
         const sessionToken = generateSessionToken(user);
@@ -144,12 +148,13 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-// Start Server - BIND TO 0.0.0.0
+// Start Server
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ API Server listening on 0.0.0.0:${PORT}`);
     
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set.");
+        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set in API env.");
+        console.log("   Login will default to insecure decoding to allow app to function.");
     }
 });
 
@@ -158,7 +163,7 @@ server.on('error', (err: any) => {
     (process as any).exit(1);
 });
 
-// Keep-Alive Settings
+// Keep-Alive Settings (Fixes some load balancer 502s)
 server.keepAliveTimeout = 120 * 1000;
 server.headersTimeout = 120 * 1000;
 

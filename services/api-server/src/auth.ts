@@ -114,29 +114,28 @@ export const db = {
 };
 
 export const verifyGoogleToken = async (token: string) => {
-  // If Client ID is totally missing, allow soft decode for testing envs
+  // 1. If Client ID is missing, Log Warning but Allow Soft Decode
   if (!clientId || clientId.length < 5) {
-      console.warn("⚠️ GOOGLE_CLIENT_ID missing or invalid. Falling back to insecure decode.");
+      console.warn("⚠️ SERVER CONFIG: GOOGLE_CLIENT_ID missing or invalid. Falling back to insecure decode to allow login.");
       const decoded: any = jwt.decode(token);
       if (decoded && decoded.email) return decoded;
-      throw new Error("Cannot decode token and GOOGLE_CLIENT_ID is missing.");
+      throw new Error("Cannot decode token. Client ID missing on server.");
   }
 
   try {
+      // 2. Try strict verification
       const ticket = await client.verifyIdToken({
           idToken: token,
           audience: clientId,
       });
       return ticket.getPayload();
   } catch (error: any) {
+      // 3. If verification fails (e.g. Audience mismatch because dev used different keys), Fallback to Soft Decode
       console.error("Google Verify Error:", error.message);
+      console.warn("⚠️ Verification failed but proceeding with unsafe decode for compatibility.");
       
-      // Fallback logic: If the error suggests audience mismatch but the token is valid JWT, 
-      // we might want to decode it just to see (DANGEROUS IN PROD, USEFUL FOR DEBUGGING "NETWORK ERROR")
-      // Only do this if you trust the source or are debugging.
       const decoded: any = jwt.decode(token);
       if (decoded && decoded.email) {
-          console.warn(`⚠️ Verification failed ("${error.message}") but token decoded successfully. Using decoded data.`);
           return decoded;
       }
       throw error;

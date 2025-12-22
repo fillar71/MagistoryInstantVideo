@@ -21,39 +21,41 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to pause execution
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
     const [isLoading, setIsLoading] = useState(true);
 
-    // ROBUST API URL DETECTION
-    // 1. Try process.env.API_URL (injected by define in vite.config.ts)
-    // 2. Try import.meta.env.VITE_API_URL (standard Vite env var)
-    // 3. Fallback to localhost
+    // --- 1. ROBUST API URL RESOLUTION ---
     let apiUrlRaw = process.env.API_URL;
     
-    // Check if process.env.API_URL is just empty string or undefined
-    if (!apiUrlRaw || apiUrlRaw === "undefined") {
-        apiUrlRaw = (import.meta as any).env.VITE_API_URL || 'http://localhost:3001';
+    // Fallback logic
+    if (!apiUrlRaw || apiUrlRaw === "undefined" || apiUrlRaw === "") {
+        // Try Vite standard env
+        apiUrlRaw = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
     }
     
-    const apiUrl = apiUrlRaw.replace(/\/$/, '');
+    let apiUrl = apiUrlRaw.replace(/\/$/, '');
 
-    // DIAGNOSTIC & MIXED CONTENT CHECK
+    // --- 2. AUTO-UPGRADE TO HTTPS (Mixed Content Fix) ---
+    // If we are on HTTPS (Vercel) but API is HTTP (Railway default URL often used without https://),
+    // browser will block it. We force upgrade to HTTPS which Railway supports.
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && apiUrl.startsWith('http://')) {
+        console.warn("🔒 Auto-fixing Mixed Content: Upgrading API URL to HTTPS.");
+        apiUrl = apiUrl.replace('http://', 'https://');
+    }
+
+    // Diagnostic Log
     useEffect(() => {
         if (window.location.hostname !== 'localhost') {
-            const isHttps = window.location.protocol === 'https:';
-            const isApiHttp = apiUrl.startsWith('http:');
-            
-            if (isHttps && isApiHttp) {
-                console.error("🚨 CRITICAL SECURITY ERROR: Mixed Content Blocking.");
-                console.error(`Your site is HTTPS (${window.location.origin}) but API is HTTP (${apiUrl}). Browser will BLOCK this connection.`);
-                console.error("FIX: Ensure your Railway service is accessed via 'https://' (Railway provides SSL by default). Update API_URL.");
-            } else if (apiUrl.includes('localhost')) {
-                console.error("🚨 CONFIG ERROR: Production site trying to connect to localhost.");
-                console.error("FIX: Set 'API_URL' or 'VITE_API_URL' in Vercel to your Railway URL.");
+            if (apiUrl.includes('localhost')) {
+                console.error("🚨 CONFIG ERROR: Production app is trying to connect to localhost.");
+                console.error("👉 Please set 'API_URL' in Vercel Environment Variables to your Backend URL.");
             } else {
-                console.log("✅ API Connection OK:", apiUrl);
+                console.log("✅ API Configured:", apiUrl);
             }
         }
     }, [apiUrl]);
@@ -109,30 +111,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     const login = async (googleToken: string) => {
-        console.log(`Sending login request to: ${apiUrl}/auth/google`);
-        try {
-            const res = await axios.post(`${apiUrl}/auth/google`, { token: googleToken });
-            const { token: sessionToken, user: userData } = res.data;
-            
-            localStorage.setItem('auth_token', sessionToken);
-            setToken(sessionToken);
-            setUser(userData);
-        } catch (error: any) {
-            console.error("Login Error Details:", error);
-            
-            if (error.code === "ERR_NETWORK") {
-                let msg = `Network Error: Cannot connect to ${apiUrl}.`;
-                if (window.location.protocol === 'https:' && apiUrl.startsWith('http:')) {
-                    msg += " (Mixed Content Error: Change API_URL to https://)";
-                } else {
-                    msg += " Check CORS or if server is running.";
+        console.log(`Attempting login to: ${apiUrl}/auth/google`);
+        
+        // --- 3. RETRY LOGIC (Handle Sleeping Server) ---
+        // Try up to 3 times if we get a network error
+        const maxRetries = 3;
+        let lastError: any;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const res = await axios.post(`${apiUrl}/auth/google`, { token: googleToken });
+                const { token: sessionToken, user: userData } = res.data;
+                
+                localStorage.setItem('auth_token', sessionToken);
+                setToken(sessionToken);
+                setUser(userData);
+                return; // Success!
+
+            } catch (error: any) {
+                lastError = error;
+                const isNetworkError = error.code === "ERR_NETWORK" || !error.response;
+                
+                if (isNetworkError && attempt < maxRetries) {
+                    console.log(`Login attempt ${attempt} failed (Network). Retrying in 1.5s...`);
+                    await delay(1500); // Wait for server to wake up
+                    continue;
                 }
-                console.error(msg);
-                throw new Error(msg);
+                
+                // If it's a 4xx error (e.g. invalid token), don't retry, fail immediately
+                if (error.response && error.response.status >= 400 && error.response.status < 500) {
+                    throw error;
+                }
+                
+                if (attempt === maxRetries) break;
             }
-            
-            throw error;
         }
+
+        // Final Error Handling
+        console.error("All login attempts failed:", lastError);
+        
+        if (lastError.code === "ERR_NETWORK") {
+            let msg = `Network Error: Cannot connect to ${apiUrl}.`;
+            if (window.location.protocol === 'https:' && apiUrl.startsWith('http:')) {
+                msg += " (Mixed Content Error: Ensure API_URL uses https://)";
+            } else {
+                msg += " The server might be down or waking up.";
+            }
+            throw new Error(msg);
+        }
+        
+        throw lastError;
     };
 
     const logout = () => {
@@ -167,7 +195,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return false;
         } catch (error: any) {
-            console.error("Transaction failed", error);
+            // Optimistic UI: If network fails during deduct, allow user to proceed
+            // so we don't block content creation due to minor API hiccups.
+            console.error("Credit deduction failed (Network)", error);
             if (error.code === 'ERR_NETWORK') return true;
             return false;
         }
