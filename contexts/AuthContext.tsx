@@ -26,17 +26,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(localStorage.getItem('auth_token'));
     const [isLoading, setIsLoading] = useState(true);
 
-    // Get API URL and sanitize trailing slash
-    const apiUrlRaw = process.env.API_URL || 'http://localhost:3001';
+    // ROBUST API URL DETECTION
+    // 1. Try process.env.API_URL (injected by define in vite.config.ts)
+    // 2. Try import.meta.env.VITE_API_URL (standard Vite env var)
+    // 3. Fallback to localhost
+    let apiUrlRaw = process.env.API_URL;
+    
+    // Check if process.env.API_URL is just empty string or undefined
+    if (!apiUrlRaw || apiUrlRaw === "undefined") {
+        apiUrlRaw = (import.meta as any).env.VITE_API_URL || 'http://localhost:3001';
+    }
+    
     const apiUrl = apiUrlRaw.replace(/\/$/, '');
 
-    // DIAGNOSTIC LOG (Only visible in browser console)
+    // DIAGNOSTIC & MIXED CONTENT CHECK
     useEffect(() => {
-        if (window.location.hostname !== 'localhost' && apiUrl.includes('localhost')) {
-            console.error("🚨 CONFIGURATION ERROR: You are running on Production (Vercel) but API_URL is set to localhost.");
-            console.error("🚨 FIX: Set 'API_URL' in Vercel Environment Variables to your Railway URL (e.g. https://magistory-api-server.up.railway.app)");
-        } else {
-            console.log("🔌 Connected to API:", apiUrl);
+        if (window.location.hostname !== 'localhost') {
+            const isHttps = window.location.protocol === 'https:';
+            const isApiHttp = apiUrl.startsWith('http:');
+            
+            if (isHttps && isApiHttp) {
+                console.error("🚨 CRITICAL SECURITY ERROR: Mixed Content Blocking.");
+                console.error(`Your site is HTTPS (${window.location.origin}) but API is HTTP (${apiUrl}). Browser will BLOCK this connection.`);
+                console.error("FIX: Ensure your Railway service is accessed via 'https://' (Railway provides SSL by default). Update API_URL.");
+            } else if (apiUrl.includes('localhost')) {
+                console.error("🚨 CONFIG ERROR: Production site trying to connect to localhost.");
+                console.error("FIX: Set 'API_URL' or 'VITE_API_URL' in Vercel to your Railway URL.");
+            } else {
+                console.log("✅ API Connection OK:", apiUrl);
+            }
         }
     }, [apiUrl]);
 
@@ -71,8 +89,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.warn("Failed to refresh session:", error.message);
             if (error.response && (error.response.status === 401 || error.response.status === 403)) {
                  logout();
-            } else {
-                // Network error? Keep user logged out but stop loading
             }
         } finally {
             setIsLoading(false);
@@ -105,7 +121,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error("Login Error Details:", error);
             
             if (error.code === "ERR_NETWORK") {
-                const msg = `Network Error: Cannot connect to ${apiUrl}. Check if the backend is running and allowed by CORS.`;
+                let msg = `Network Error: Cannot connect to ${apiUrl}.`;
+                if (window.location.protocol === 'https:' && apiUrl.startsWith('http:')) {
+                    msg += " (Mixed Content Error: Change API_URL to https://)";
+                } else {
+                    msg += " Check CORS or if server is running.";
+                }
                 console.error(msg);
                 throw new Error(msg);
             }
@@ -147,7 +168,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return false;
         } catch (error: any) {
             console.error("Transaction failed", error);
-            // Optimistic success on network error to not block user flow
             if (error.code === 'ERR_NETWORK') return true;
             return false;
         }

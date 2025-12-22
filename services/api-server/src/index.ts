@@ -14,8 +14,6 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 const app = express();
 
 // --- 1. CRITICAL: HEALTH CHECK MUST BE FIRST ---
-// This ensures Railway/Render load balancers get a 200 OK immediately
-// before any heavy middleware (CORS, BodyParser, DB) runs.
 const healthHandler = (req: any, res: any) => {
     res.status(200).send('Magistory API Server is Running.');
 };
@@ -24,38 +22,43 @@ app.head('/', healthHandler);
 app.get('/health', healthHandler);
 
 // --- 2. CONFIGURATION ---
-app.set('trust proxy', 1); // Required for secure cookies behind proxy
+app.set('trust proxy', 1);
 
 const rawPort = process.env.PORT || '3001';
 const PORT = parseInt(rawPort, 10) || 3001;
 
 console.log(`Initializing Server on Port: ${PORT}`);
 
-// --- 3. CORS (Must be before Body Parser) ---
-// Using a dynamic origin function allows connections from Vercel, Localhost, etc.
-// while satisfying the "Access-Control-Allow-Credentials: true" requirement.
-app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-        if (!origin) return callback(null, true);
-        // Allow all origins (Permissive for troubleshooting "Network Error")
-        return callback(null, true);
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
-}));
+// --- 3. MANUAL CORS MIDDLEWARE (MOST ROBUST) ---
+// This guarantees headers are set correctly for Vercel -> Railway communication
+app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    
+    // Allow any origin that connects (Reflect Origin)
+    if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        // Fallback for tools like Postman or generic requests
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
 
-// Explicitly handle OPTIONS preflight for all routes
-app.options('*', cors() as any);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Handle Preflight immediately
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    next();
+});
 
 // --- 4. BODY PARSER ---
-// Increase limit for uploads
 app.use(express.json({ limit: '10mb' }) as any);
 
-// --- 5. LOGGING MIDDLEWARE ---
+// --- 5. LOGGING ---
 app.use((req, res, next) => {
-    // Skip logging for health checks to keep logs clean
     if (req.path === '/' || req.path === '/health') return next();
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip} | Origin: ${req.headers.origin || 'N/A'}`);
     next();
@@ -67,7 +70,7 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim
 app.post('/auth/google', async (req, res) => {
     const { token } = req.body;
     
-    console.log("Received Login Request. Body token length:", token ? token.length : 'null');
+    console.log("Received Login Request.");
 
     if (!token) {
         return res.status(400).json({ error: "Missing token in request body" });
@@ -91,7 +94,6 @@ app.post('/auth/google', async (req, res) => {
         res.json({ token: sessionToken, user: { id: user.id, name: user.name, email: user.email, credits: displayCredits } });
     } catch (error: any) {
         console.error("Auth Route Error:", error.message);
-        // Return 401 but include message to help debug on frontend
         res.status(401).json({ error: "Authentication failed: " + error.message });
     }
 });
@@ -123,7 +125,6 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
         if (!user) return res.status(404).json({ error: "User not found" });
 
         if (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-            console.log(`Admin action by ${user.email}: ${action} (Cost bypassed)`);
             return res.json({ success: true, remainingCredits: 999999 });
         }
 
@@ -143,19 +144,12 @@ app.post('/credits/deduct', authMiddleware, async (req: any, res) => {
     }
 });
 
-// Start Server - BIND TO 0.0.0.0 (Required for Railway)
+// Start Server - BIND TO 0.0.0.0
 const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log("==================================================");
     console.log(`✅ API Server listening on 0.0.0.0:${PORT}`);
-    console.log(`✅ Health Check: http://0.0.0.0:${PORT}/`);
-    console.log("==================================================");
     
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set. Google Login might default to decoding-only (insecure).");
-    }
-    
-    if (!process.env.DATABASE_URL) {
-        console.log("ℹ️ INFO: DATABASE_URL is not set. Using JSON/Memory DB.");
+        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set.");
     }
 });
 
@@ -164,7 +158,7 @@ server.on('error', (err: any) => {
     (process as any).exit(1);
 });
 
-// --- KEEP-ALIVE CONFIG ---
+// Keep-Alive Settings
 server.keepAliveTimeout = 120 * 1000;
 server.headersTimeout = 120 * 1000;
 
