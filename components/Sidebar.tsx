@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { MediaIcon, MusicIcon, TextIcon, MagicWandIcon } from './icons';
+import { MediaIcon, MusicIcon, TextIcon } from './icons';
 
 interface SidebarProps {
   activeTab: string;
@@ -15,20 +15,31 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   ];
 
   return (
-    <div className="w-[60px] flex-shrink-0 bg-[#161616] border-r border-black/50 flex flex-col items-center py-4 gap-4 z-20">
+    <div className="
+        fixed bottom-0 left-0 right-0 h-16 border-t border-gray-800 bg-[#161616] z-50 flex flex-row justify-around items-center px-2
+        md:relative md:w-[72px] md:h-full md:flex-col md:justify-start md:border-r md:border-t-0 md:py-4 md:gap-6
+    ">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => setActiveTab(tab.id)}
-          className={`flex flex-col items-center justify-center w-10 h-10 rounded-md transition-all duration-200 group relative ${
-            activeTab === tab.id
-              ? 'text-purple-400'
-              : 'text-gray-500 hover:text-gray-300'
-          }`}
+          className={`
+            flex flex-col items-center justify-center rounded-lg transition-all duration-200 group relative
+            w-full h-full md:w-12 md:h-12 md:rounded-xl
+            ${activeTab === tab.id ? 'text-purple-400' : 'text-gray-500 hover:text-gray-300'}
+          `}
         >
-          {activeTab === tab.id && <div className="absolute -left-3 w-1 h-6 bg-purple-500 rounded-r-full"></div>}
-          <div className="w-6 h-6">{tab.icon}</div>
-          <span className="text-[8px] font-medium mt-1 opacity-0 group-hover:opacity-100 absolute left-12 bg-gray-800 px-2 py-1 rounded text-white whitespace-nowrap z-50 pointer-events-none transition-opacity">
+          {/* Active Indicator Desktop */}
+          {activeTab === tab.id && (
+              <div className="hidden md:block absolute -left-3 w-1 h-6 bg-purple-500 rounded-r-full"></div>
+          )}
+          {/* Active Indicator Mobile */}
+          {activeTab === tab.id && (
+              <div className="md:hidden absolute top-0 w-8 h-1 bg-purple-500 rounded-b-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></div>
+          )}
+
+          <div className="w-6 h-6 mb-1 md:mb-0">{tab.icon}</div>
+          <span className="text-[10px] font-medium md:hidden md:group-hover:block md:absolute md:left-14 md:bg-gray-800 md:px-2 md:py-1 md:rounded md:text-white md:z-50 md:shadow-lg">
               {tab.label}
           </span>
         </button>

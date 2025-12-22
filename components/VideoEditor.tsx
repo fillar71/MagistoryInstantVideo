@@ -23,7 +23,6 @@ interface VideoEditorProps {
 
 const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   // --- STATE ---
-  // Ensure we capture ID if it exists (for overwriting saved projects)
   const [projectId, setProjectId] = useState(initialScript.id);
   const [segments, setSegments] = useState<Segment[]>(initialScript.segments);
   const [audioTracks, setAudioTracks] = useState<AudioClip[]>(initialScript.audioTracks || []);
@@ -417,13 +416,18 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   }
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-black text-white">
-        {/* SIDEBAR */}
-        <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
+    <div className="flex flex-col md:flex-row h-full w-full overflow-hidden bg-black text-white relative">
+        {/* DESKTOP SIDEBAR (Left) */}
+        <div className="hidden md:block h-full z-20">
+            <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
+        </div>
 
-        {/* RESOURCE PANEL (Slide-out) */}
+        {/* RESOURCE PANEL (Responsive: Fullscreen Mobile, Drawer Desktop) */}
         {isResourcePanelOpen && (
-            <div className="fixed inset-0 md:absolute md:inset-auto md:top-4 md:left-4 md:bottom-4 md:w-[400px] bg-[#1e1e1e] md:rounded-xl shadow-2xl border-0 md:border border-gray-700 z-[60] flex flex-col overflow-hidden animate-slide-in-up md:animate-slide-in-left">
+            <div className={`
+                fixed z-[60] bg-[#1e1e1e] flex flex-col shadow-2xl overflow-hidden animate-slide-in-up md:animate-slide-in-left
+                inset-0 md:absolute md:inset-auto md:top-4 md:left-[80px] md:bottom-4 md:w-[400px] md:rounded-xl md:border md:border-gray-700
+            `}>
                 <div className="flex justify-between items-center p-4 border-b border-gray-700 bg-[#252525]">
                         <div className="flex items-center gap-2">
                             <button onClick={() => setIsResourcePanelOpen(false)} className="md:hidden text-gray-400 hover:text-white">
@@ -431,7 +435,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                             </button>
                             <span className="font-bold text-white capitalize text-lg">{activeResourceTab} Library</span>
                         </div>
-                        <button onClick={() => setIsResourcePanelOpen(false)} className="hidden md:block text-gray-400 hover:text-white p-1 hover:bg-white/10 rounded-full">
+                        <button onClick={() => setIsResourcePanelOpen(false)} className="text-gray-400 hover:text-white p-1 hover:bg-white/10 rounded-full">
                            <ChevronLeftIcon className="w-5 h-5 rotate-180 md:rotate-0" />
                         </button>
                 </div>
@@ -453,106 +457,105 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
         )}
 
         {/* MAIN AREA */}
-        <div className="flex-1 flex flex-col min-w-0">
-             {/* TOP SECTION: PREVIEW & PROPERTIES */}
-             <div className="flex-1 flex min-h-0">
-                 {/* PREVIEW */}
-                 <div className="flex-1 flex flex-col bg-[#0a0a0a] relative">
-                     <div className="flex-grow relative overflow-hidden flex items-center justify-center p-4">
-                        {activeSegment && (
-                             <PreviewWindow 
-                                title={title}
-                                onTitleChange={setTitle}
-                                segment={activeSegment}
-                                segments={segments}
-                                audioTracks={audioTracks} // PASS GLOBAL AUDIO TRACKS
-                                activeSegmentId={activeSegmentId || ''}
-                                onUpdateSegments={setSegments}
-                                currentTime={currentTime}
-                                isPlaying={isPlaying}
-                                totalDuration={totalDuration}
-                                onPlayPause={handlePlayPause}
-                                onSeek={handleSeek}
-                             />
-                        )}
-                        {/* Header Actions Overlay */}
-                        <div className="absolute top-4 right-4 flex gap-2 z-50">
-                             
-                             {/* Preview Button */}
-                             <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm shadow-md transition-colors" title="Fullscreen Preview">
-                                 <PlayIcon className="w-5 h-5" />
-                             </button>
-
-                             {/* Save/Export Dropdown Button */}
-                             <div className="relative" ref={saveMenuRef}>
-                                <button 
-                                    onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
-                                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-full font-bold shadow-lg flex items-center gap-2 transition-colors border border-purple-500/50"
-                                >
-                                    <span>Save/Export</span>
-                                    <ChevronDownIcon className={`w-4 h-4 transition-transform duration-200 ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
-                                </button>
-
-                                {isSaveMenuOpen && (
-                                    <div className="absolute right-0 top-full mt-2 w-48 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-1 z-50 overflow-hidden animate-fade-in">
-                                        <button 
-                                            onClick={() => {
-                                                handleSaveProject();
-                                                setIsSaveMenuOpen(false);
-                                            }}
-                                            disabled={isSaving}
-                                            className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors border-b border-gray-700/50"
-                                        >
-                                            {isSaving ? <LoadingSpinner /> : <SaveIcon className="w-4 h-4 text-green-400" />}
-                                            <div className="flex flex-col">
-                                                <span className="font-semibold">Save Project</span>
-                                                <span className="text-[10px] text-gray-400">Save progress to server</span>
-                                            </div>
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                setShowExportModal(true);
-                                                setIsSaveMenuOpen(false);
-                                            }}
-                                            className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors"
-                                        >
-                                            <ExportIcon className="w-4 h-4 text-blue-400" />
-                                            <div className="flex flex-col">
-                                                <span className="font-semibold">Export Video</span>
-                                                <span className="text-[10px] text-gray-400">Render final MP4</span>
-                                            </div>
-                                        </button>
-                                    </div>
-                                )}
-                             </div>
-                        </div>
-                     </div>
-                     
-                     {/* TOOLBAR */}
-                     <div className="h-14 bg-[#1e1e1e] border-t border-black/50 z-20">
-                         <Toolbar 
-                            activeMenu={activeMenu}
-                            setActiveMenu={setActiveMenu}
-                            onOpenMediaSearch={() => { setActiveResourceTab('media'); setIsResourcePanelOpen(true); }}
-                            onOpenAudioModal={(type) => handleAddAudioTrack(type)}
-                            onOpenAITools={() => handleOpenAITools()}
-                            onSplit={handleSplitSegment}
-                            onDelete={handleDelete}
-                            activeSegment={activeSegment}
-                            onUpdateVolume={(id, vol) => handleUpdateSegment(id, { audioVolume: vol })}
-                            onUpdateText={handleUpdateSegmentText}
-                            onAutoCaptions={handleAutoCaptions}
-                            onUpdateStyle={(id, style) => handleUpdateSegment(id, { textOverlayStyle: { ...activeSegment?.textOverlayStyle!, ...style } })}
-                            onApplyTransitionToAll={handleApplyTransitionToAll}
+        <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0 relative">
+             {/* TOP SECTION: PREVIEW & TOOLBAR */}
+             <div className="flex-none flex flex-col bg-[#0a0a0a] relative z-10 md:h-[60%]">
+                 {/* PREVIEW WINDOW */}
+                 <div className="flex-grow relative overflow-hidden flex items-center justify-center p-2 md:p-4 min-h-[40vh] md:min-h-0">
+                    {activeSegment && (
+                         <PreviewWindow 
+                            title={title}
+                            onTitleChange={setTitle}
+                            segment={activeSegment}
+                            segments={segments}
+                            audioTracks={audioTracks} // PASS GLOBAL AUDIO TRACKS
+                            activeSegmentId={activeSegmentId || ''}
+                            onUpdateSegments={setSegments}
+                            currentTime={currentTime}
+                            isPlaying={isPlaying}
+                            totalDuration={totalDuration}
+                            onPlayPause={handlePlayPause}
+                            onSeek={handleSeek}
                          />
-                     </div>
+                    )}
+                    {/* Header Actions Overlay */}
+                    <div className="absolute top-2 right-2 md:top-4 md:right-4 flex gap-2 z-50">
+                         
+                         {/* Preview Button */}
+                         <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm shadow-md transition-colors" title="Fullscreen Preview">
+                             <PlayIcon className="w-5 h-5" />
+                         </button>
+
+                         {/* Save/Export Dropdown Button */}
+                         <div className="relative" ref={saveMenuRef}>
+                            <button 
+                                onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
+                                className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 md:px-4 rounded-full font-bold shadow-lg flex items-center gap-2 transition-colors border border-purple-500/50 text-xs md:text-sm"
+                            >
+                                <span className="hidden sm:inline">Save/Export</span>
+                                <span className="sm:hidden">Save</span>
+                                <ChevronDownIcon className={`w-4 h-4 transition-transform duration-200 ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {isSaveMenuOpen && (
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-1 z-50 overflow-hidden animate-fade-in">
+                                    <button 
+                                        onClick={() => {
+                                            handleSaveProject();
+                                            setIsSaveMenuOpen(false);
+                                        }}
+                                        disabled={isSaving}
+                                        className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors border-b border-gray-700/50"
+                                    >
+                                        {isSaving ? <LoadingSpinner /> : <SaveIcon className="w-4 h-4 text-green-400" />}
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold">Save Project</span>
+                                            <span className="text-[10px] text-gray-400">Save progress to server</span>
+                                        </div>
+                                    </button>
+                                    <button 
+                                        onClick={() => {
+                                            setShowExportModal(true);
+                                            setIsSaveMenuOpen(false);
+                                        }}
+                                        className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors"
+                                    >
+                                        <ExportIcon className="w-4 h-4 text-blue-400" />
+                                        <div className="flex flex-col">
+                                            <span className="font-semibold">Export Video</span>
+                                            <span className="text-[10px] text-gray-400">Render final MP4</span>
+                                        </div>
+                                    </button>
+                                </div>
+                            )}
+                         </div>
+                    </div>
+                 </div>
+                 
+                 {/* TOOLBAR */}
+                 <div className="h-12 md:h-14 bg-[#1e1e1e] border-t border-black/50 z-20 flex-shrink-0">
+                     <Toolbar 
+                        activeMenu={activeMenu}
+                        setActiveMenu={setActiveMenu}
+                        onOpenMediaSearch={() => { setActiveResourceTab('media'); setIsResourcePanelOpen(true); }}
+                        onOpenAudioModal={(type) => handleAddAudioTrack(type)}
+                        onOpenAITools={() => handleOpenAITools()}
+                        onSplit={handleSplitSegment}
+                        onDelete={handleDelete}
+                        activeSegment={activeSegment}
+                        onUpdateVolume={(id, vol) => handleUpdateSegment(id, { audioVolume: vol })}
+                        onUpdateText={handleUpdateSegmentText}
+                        onAutoCaptions={handleAutoCaptions}
+                        onUpdateStyle={(id, style) => handleUpdateSegment(id, { textOverlayStyle: { ...activeSegment?.textOverlayStyle!, ...style } })}
+                        onApplyTransitionToAll={handleApplyTransitionToAll}
+                     />
                  </div>
              </div>
 
              {/* BOTTOM SECTION: TIMELINE & PROPERTIES */}
-             <div className="h-[40%] min-h-[250px] flex flex-col border-t border-black/50">
-                 {/* TIMELINE */}
-                 <div className="flex-1 min-h-0 bg-[#161616] relative flex flex-col">
+             <div className="flex-1 flex flex-col min-h-0 bg-[#161616]">
+                 {/* TIMELINE (Takes remaining space) */}
+                 <div className="flex-1 min-h-[150px] relative flex flex-col">
                      <Timeline 
                         segments={segments}
                         audioTracks={audioTracks}
@@ -576,8 +579,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                      />
                  </div>
                  
-                 {/* PROPERTIES PANEL (Bottom Bar) */}
-                 <div className="flex-shrink-0 border-t border-white/5 z-20">
+                 {/* PROPERTIES PANEL (Bottom Area above Nav) */}
+                 <div className="flex-shrink-0 border-t border-white/5 z-20 bg-[#1e1e1e] overflow-x-auto">
                      <PropertiesPanel 
                         segment={activeSegment}
                         audioTrack={activeAudioTrack}
@@ -592,6 +595,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                      />
                  </div>
              </div>
+        </div>
+
+        {/* MOBILE BOTTOM NAVIGATION (Fixed) */}
+        <div className="md:hidden">
+            <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
         </div>
 
         {/* MODALS */}
