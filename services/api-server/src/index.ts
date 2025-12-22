@@ -1,4 +1,3 @@
-
 import express from 'express';
 import cors from 'cors';
 import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddleware, db } from './auth';
@@ -14,20 +13,25 @@ import { verifyGoogleToken, findOrCreateUser, generateSessionToken, authMiddlewa
 
 const app = express();
 
-// Enable Trust Proxy for Railway/Heroku
+// Enable Trust Proxy for Railway/Heroku/Render
 app.set('trust proxy', 1);
 
-// CRITICAL: Railway assigns a random port in process.env.PORT. 
-const PORT = parseInt(process.env.PORT || '3001');
+// CRITICAL: Railway/Render assigns a random port in process.env.PORT. 
+// Handle potential parsing errors or empty strings safely.
+const rawPort = process.env.PORT || '3001';
+const PORT = parseInt(rawPort, 10) || 3001;
 
-console.log(`Starting API Server initialization... Port will be: ${PORT}`);
+console.log(`Starting API Server initialization... Configured Port: ${PORT}`);
 
-// Increase limit for uploads
+// Increase limit for uploads (e.g. base64 images)
 app.use(express.json({ limit: '10mb' }) as any);
 
 // Middleware: Logger
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
+    // Health checks can be spammy, log them less visibly or skip if needed
+    if (req.url !== '/health') {
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from ${req.ip}`);
+    }
     next();
 });
 
@@ -38,7 +42,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// --- HEALTH CHECK ---
+// --- HEALTH CHECK (Must be first to ensure load balancers see 200 OK immediately) ---
 const healthHandler = (req: any, res: any) => {
     res.status(200).send('Magistory API Server is Running.');
 };
@@ -52,11 +56,10 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim
 
 app.post('/auth/google', async (req, res) => {
     const { token } = req.body;
-    console.log("Auth attempt received.");
-
+    
+    // Warn but don't crash if ID is missing (useful for dev/offline mode testing)
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.error("LOGIN FAILED: GOOGLE_CLIENT_ID is missing.");
-        return res.status(500).json({ error: "Server misconfiguration: Missing Google Client ID." });
+        console.warn("LOGIN WARNING: GOOGLE_CLIENT_ID is missing. Verification might fail if strict.");
     }
 
     try {
@@ -134,19 +137,26 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     
     // Config Checks
     if (!process.env.GOOGLE_CLIENT_ID) {
-        console.error("❌ CRITICAL WARNING: GOOGLE_CLIENT_ID is not set in Railway variables.");
+        console.warn("⚠️ WARNING: GOOGLE_CLIENT_ID is not set.");
     } else {
         console.log("✅ Google Auth: Configured");
     }
 
     if (!process.env.DATABASE_URL) {
-        console.log("ℹ️  INFO: DATABASE_URL is not set. Running in Fallback Mode (Memory/JSON).");
+        console.log("ℹ️ INFO: DATABASE_URL is not set. Running in Fallback Mode (Memory/JSON).");
     } else {
-        console.log("✅ Database URL Detected (Prisma Mode)");
+        console.log("✅ Database URL Detected (Attempting Prisma Mode)");
     }
 });
 
+// Handle startup errors (like EADDRINUSE)
+server.on('error', (err: any) => {
+    console.error("❌ SERVER FAILED TO START:", err);
+    (process as any).exit(1);
+});
+
 // --- KEEP-ALIVE TIMEOUT FIX FOR 502s ---
+// Ensure Node's keep-alive is slightly longer than the Load Balancer's timeout (usually 60s)
 server.keepAliveTimeout = 120 * 1000;
 server.headersTimeout = 120 * 1000;
 
