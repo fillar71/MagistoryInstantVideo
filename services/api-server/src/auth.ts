@@ -12,6 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
 
 // --- DB Abstraction for Fallback ---
 let prismaInstance: any = null;
+let isPrismaInitialized = false;
 
 // JSON DB Configuration for persistence
 const DATA_DIR = path.join((process as any).cwd(), 'data');
@@ -62,40 +63,44 @@ const writeUsers = (users: any[]) => {
     }
 };
 
-// --- SAFE PRISMA INITIALIZATION ---
-try {
-    if (process.env.DATABASE_URL) {
-        console.log("Attempting to initialize PrismaClient...");
-        // Dynamically require PrismaClient to avoid compilation errors if not generated
-        // We use a try-catch for the require itself
-        let pkg;
-        try {
-            pkg = require('@prisma/client');
-        } catch (requireErr) {
-            console.warn("⚠️ @prisma/client package not found or cannot be required.");
-        }
+// --- LAZY PRISMA INITIALIZATION ---
+// We do not initialize Prisma at top-level to prevent startup crashes if DB is unreachable.
+const getPrisma = () => {
+    if (isPrismaInitialized) return prismaInstance;
 
-        if (pkg && pkg.PrismaClient) {
-            const { PrismaClient } = pkg;
-            prismaInstance = new PrismaClient();
-            console.log("✅ PrismaClient initialized successfully.");
-        } else {
-            console.warn("⚠️ @prisma/client found but PrismaClient export missing. Did you run 'prisma generate'?");
+    try {
+        if (process.env.DATABASE_URL) {
+            console.log("Initializing PrismaClient (Lazy)...");
+            let pkg;
+            try {
+                pkg = require('@prisma/client');
+            } catch (requireErr) {
+                console.warn("⚠️ @prisma/client package not found or cannot be required.");
+            }
+
+            if (pkg && pkg.PrismaClient) {
+                const { PrismaClient } = pkg;
+                prismaInstance = new PrismaClient();
+                console.log("✅ PrismaClient initialized successfully.");
+            } else {
+                console.warn("⚠️ @prisma/client found but PrismaClient export missing. Did you run 'prisma generate'?");
+            }
         }
-    } else {
-        console.log("NOTICE: DATABASE_URL is not set. App is running in JSON/MEMORY FALLBACK MODE.");
-        console.log("Data will be lost upon restart/redeploy if disk is ephemeral.");
+    } catch (e) {
+        console.error("Failed to initialize PrismaClient:", e);
     }
-} catch (e) {
-    console.error("Failed to initialize PrismaClient (Fallback to JSON DB):", e);
-}
+    
+    isPrismaInitialized = true;
+    return prismaInstance;
+};
 
 export const db = {
     user: {
         findUnique: async (args: { where: any }) => {
-            if (prismaInstance) {
+            const prisma = getPrisma();
+            if (prisma) {
                 try {
-                    return await prismaInstance.user.findUnique(args as any);
+                    return await prisma.user.findUnique(args as any);
                 } catch (e) {
                     console.error("Prisma Connection Failed (findUnique), using fallback...", e);
                 }
@@ -109,16 +114,16 @@ export const db = {
             ) || null;
         },
         create: async (args: { data: any }) => {
-            if (prismaInstance) {
+            const prisma = getPrisma();
+            if (prisma) {
                 try {
-                    return await prismaInstance.user.create(args as any);
+                    return await prisma.user.create(args as any);
                 } catch (e) {
                     console.error("Prisma Create Failed, using fallback...", e);
                 }
             }
             
             const users = readUsers();
-            // Mock ID generation
             const newUser = { id: `user-${Date.now()}-${Math.floor(Math.random() * 1000)}`, ...args.data };
             users.push(newUser);
             writeUsers(users);
@@ -126,9 +131,10 @@ export const db = {
             return newUser;
         },
         update: async (args: { where: { id: string }, data: any }) => {
-            if (prismaInstance) {
+            const prisma = getPrisma();
+            if (prisma) {
                 try {
-                    return await prismaInstance.user.update(args as any);
+                    return await prisma.user.update(args as any);
                 } catch (e) {
                     console.error("Prisma Update Failed, using fallback...", e);
                 }
@@ -140,14 +146,12 @@ export const db = {
             
             const user = users[idx];
             
-            // Handle simple decrement logic for credits (specific to this app)
             if (args.data.credits && typeof args.data.credits === 'object' && args.data.credits.decrement) {
                 user.credits -= args.data.credits.decrement;
             } else if (args.data.credits !== undefined) {
                 user.credits = args.data.credits;
             }
             
-            // Update other fields if necessary (shallow merge for simplicity in this demo)
             users[idx] = user;
             writeUsers(users);
             
@@ -158,13 +162,9 @@ export const db = {
 
 export const verifyGoogleToken = async (token: string) => {
   if (!clientId) {
-      // Allow bypass in fallback mode if client ID not set, assuming dev env
-      // But logging is important.
-      console.warn("Skipping strict Google Token verification (Client ID missing).");
-      // Decoding without verification is risky in prod, but enables offline/dev usage
+      console.warn("Skipping strict Google Token verification (Client ID missing). Decoding only.");
       const decoded: any = jwt.decode(token);
       if (decoded && decoded.email) return decoded;
-      
       throw new Error("GOOGLE_CLIENT_ID is not configured on the server.");
   }
   const ticket = await client.verifyIdToken({
@@ -178,7 +178,6 @@ export const findOrCreateUser = async (email: string, name: string, googleId: st
     let user = await db.user.findUnique({ where: { email } });
     
     if (!user) {
-        // New User: Gets 10 credits by default schema
         user = await db.user.create({
             data: {
                 email,
@@ -195,7 +194,6 @@ export const generateSessionToken = (user: any) => {
     return jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 };
 
-// Middleware to check JWT from frontend requests
 export const authMiddleware = async (req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'No token provided' });

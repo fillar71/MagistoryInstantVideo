@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
       'process.env.PIXABAY_API_KEY': JSON.stringify(env.PIXABAY_API_KEY || process.env.PIXABAY_API_KEY || '53479357-80b3feb16fd61b8af448448fc'),
       
       // Backend Configuration - Split into API and Render services
+      // Use empty string default to force fallback logic in app if needed, or specific localhost for dev
       'process.env.API_URL': JSON.stringify(env.API_URL || process.env.API_URL || 'http://localhost:3001'),
       'process.env.RENDER_URL': JSON.stringify(env.RENDER_URL || process.env.RENDER_URL || 'http://localhost:3002'),
       
