@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => {
           manualChunks: {
             vendor: ['react', 'react-dom'],
             genai: ['@google/genai'],
-            utils: ['axios', 'uuid', 'jwt-decode']
+            utils: ['axios', 'uuid']
           }
         }
       }
