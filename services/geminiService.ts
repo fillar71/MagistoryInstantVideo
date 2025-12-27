@@ -283,17 +283,21 @@ export async function generateVisualsFromAudio(base64Audio: string, mimeType: st
                         }
                     },
                     {
-                        text: `Analyze this audio. I want to create a video background for it using stock footage.
-                        
-                        Instructions:
-                        1. Identify the mood, tempo, and topic (if spoken) or vibe (if music).
-                        2. Break the audio into DISTINCT visual segments based on beat changes, topic shifts, or natural pauses.
-                        3. For each segment, provide:
-                           - 'duration': The duration of this visual clip in seconds.
-                           - 'search_keywords_for_media': Specific Pexels search terms (Subject + Action + Setting).
-                           - 'narration_text': If there is speech in this segment, transcribe it. If music only, describe the visual mood (e.g. "Slow motion waves").
-                        
+                        text: `You are an expert Video Editor and Visual Director. 
+                        Your task is to analyze the audio and generate a precise visual script.
+
+                        CRITICAL INSTRUCTIONS FOR MEDIA MATCHING:
+                        1. **LISTEN TO THE WORDS**: If this is a speech/narration, you MUST extract concrete visual nouns and actions from the spoken text.
+                           - If audio says: "The red car drove fast", keyword MUST contain "red car driving fast".
+                           - If audio says: "Our team collaborates in the office", keyword MUST contain "office team meeting".
+                        2. **AVOID ABSTRACT CONCEPTS**: Do NOT use keywords like "Success", "Motivation", "Journey", "History". Stock search engines fail with these.
+                           - Convert "Success" -> "Man on mountain top arms up".
+                           - Convert "History" -> "Old vintage map library".
+                        3. **IF MUSIC ONLY**: Describe the mood visually (e.g., "Upbeat" -> "People dancing party strobe lights", "Calm" -> "Slow motion river nature").
+                        4. **KEYWORD FORMAT**: Use "Subject + Action + Setting + Lighting/Style" (e.g., "Cat sleeping on sofa sunny window").
+
                         ${durationInstruction}
+                        
                         Generate a JSON response.`
                     }
                 ],
@@ -309,7 +313,10 @@ export async function generateVisualsFromAudio(base64Audio: string, mimeType: st
                                     type: Type.OBJECT,
                                     properties: {
                                         duration: { type: Type.NUMBER },
-                                        search_keywords_for_media: { type: Type.STRING },
+                                        search_keywords_for_media: { 
+                                            type: Type.STRING,
+                                            description: "A highly specific, concrete search phrase (3-6 words) describing a PHYSICAL SCENE based on the audio content." 
+                                        },
                                         narration_text: { type: Type.STRING }
                                     },
                                     required: ["duration", "search_keywords_for_media"]
