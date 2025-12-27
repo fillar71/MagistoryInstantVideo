@@ -12,7 +12,7 @@ import {
 } from '../services/geminiService';
 import { searchPixabayAudio } from '../services/pixabayService';
 import { imageUrlToBase64, createWavBlobUrl, getAudioDuration } from '../utils/media';
-import { VolumeXIcon, MagicWandIcon, AlertCircleIcon } from './icons';
+import { VolumeXIcon, MagicWandIcon, AlertCircleIcon, PlayIcon, PlusIcon } from './icons';
 import { useAuth } from '../contexts/AuthContext';
 
 interface AIToolsModalProps {
@@ -22,14 +22,15 @@ interface AIToolsModalProps {
   activeClipId: string;
   onUpdateMedia: (newUrl: string, type: 'image' | 'video') => void;
   onUpdateAudio: (newUrl: string, duration?: number) => void;
+  onAddAudioTrack?: (url: string, name: string, type: 'music' | 'sfx') => void;
   initialTab?: AIToolTab;
   onGenerateAllNarrations?: () => Promise<void>;
   generationProgress?: { current: number; total: number } | null;
-  onCancelGeneration?: () => void; // New prop for canceling
-  allSegments?: Segment[]; // New Prop to count missing items
+  onCancelGeneration?: () => void; 
+  allSegments?: Segment[]; 
 }
 
-const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio, initialTab = 'edit-image', onGenerateAllNarrations, generationProgress, onCancelGeneration, allSegments }) => {
+const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, activeClipId, onUpdateMedia, onUpdateAudio, onAddAudioTrack, initialTab = 'edit-image', onGenerateAllNarrations, generationProgress, onCancelGeneration, allSegments }) => {
   const [activeTab, setActiveTab] = useState<AIToolTab>(initialTab);
 
   useEffect(() => {
@@ -65,7 +66,7 @@ const AIToolsModal: React.FC<AIToolsModalProps> = ({ isOpen, onClose, segment, a
           {activeTab === 'edit-image' && <EditImageTab mediaUrl={activeClip.url} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'generate-video' && <GenerateVideoTab segment={segment} onUpdateMedia={onUpdateMedia} onClose={onClose} />}
           {activeTab === 'tts' && <TextToSpeechTab segment={segment} onUpdateAudio={onUpdateAudio} onGenerateAllNarrations={onGenerateAllNarrations} generationProgress={generationProgress} onCancelGeneration={onCancelGeneration} allSegments={allSegments} />}
-          {activeTab === 'generate-sfx' && <GenerateSFXTab segment={segment} onUpdateAudio={onUpdateAudio} onClose={onClose} />}
+          {activeTab === 'generate-sfx' && <GenerateSFXTab segment={segment} onAddAudioTrack={onAddAudioTrack} onClose={onClose} />}
         </div>
       </div>
     </div>
@@ -345,9 +346,122 @@ const TextToSpeechTab: React.FC<{ segment: Segment; onUpdateAudio: (url: string,
     );
 };
 
-// --- Generate SFX Tab --- (Unchanged)
-const GenerateSFXTab: React.FC<any> = ({ segment, onUpdateAudio, onClose }) => {
-    return <div>Coming Soon (Credit Integrated)</div>; 
+// --- Generate SFX Tab ---
+const GenerateSFXTab: React.FC<{ segment: Segment; onAddAudioTrack?: (url: string, name: string, type: 'music' | 'sfx') => void; onClose: () => void; }> = ({ segment, onAddAudioTrack, onClose }) => {
+    const { deductCredits } = useAuth();
+    const [prompt, setPrompt] = useState(segment.sfx_keywords || '');
+    const [isLoading, setIsLoading] = useState(false);
+    const [results, setResults] = useState<any[]>([]);
+    const [error, setError] = useState('');
+
+    // Pre-fill prompt if empty
+    useEffect(() => {
+        if (!prompt && segment.narration_text) {
+             setPrompt(`Sound effect for: ${segment.narration_text.substring(0, 30)}...`);
+        }
+    }, []);
+
+    const handleGenerate = async () => {
+        if (!prompt) return;
+        
+        // 1 Credit
+        const canProceed = await deductCredits(1, 'generate_sfx');
+        if (!canProceed) return;
+
+        setIsLoading(true);
+        setError('');
+        setResults([]);
+
+        try {
+            // 1. Get Keywords from Gemini
+            const keywords = await generateSFXKeywords(prompt);
+            console.log("SFX Keywords:", keywords);
+
+            // 2. Search Pixabay for SFX using keywords
+            const audioResults = await searchPixabayAudio(keywords, 'sfx');
+            
+            if (audioResults.length === 0) {
+                 // Fallback to simpler search
+                 const fallbackResults = await searchPixabayAudio(prompt.split(' ')[0], 'sfx');
+                 setResults(fallbackResults);
+                 if (fallbackResults.length === 0) throw new Error("No sound effects found.");
+            } else {
+                 setResults(audioResults);
+            }
+
+        } catch (err: any) {
+            setError(err.message || 'Failed to generate SFX.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleSelect = (track: any) => {
+        if (onAddAudioTrack) {
+            onAddAudioTrack(track.url, track.name, 'sfx');
+            onClose();
+        } else {
+            alert("Could not add track: Handler missing.");
+        }
+    }
+
+    return (
+        <div className="space-y-4">
+             <div>
+                <p className="text-gray-300 mb-2">Describe a sound effect (e.g., "Explosion", "Birds chirping", "Footsteps").</p>
+                <div className="flex gap-2">
+                    <input 
+                        type="text" 
+                        value={prompt} 
+                        onChange={e => setPrompt(e.target.value)} 
+                        placeholder="e.g., Laser blast sci-fi" 
+                        className="flex-grow p-3 bg-gray-700 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" 
+                        onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
+                    />
+                    <button 
+                        onClick={handleGenerate} 
+                        disabled={isLoading || !prompt} 
+                        className="px-6 py-2 bg-purple-600 text-white font-semibold rounded-md hover:bg-purple-700 disabled:bg-gray-600 flex items-center gap-2"
+                    >
+                        {isLoading && <LoadingSpinner />} Generate (1 Cr)
+                    </button>
+                </div>
+            </div>
+
+            {error && <p className="text-red-400 text-sm bg-red-900/20 p-2 rounded">{error}</p>}
+
+            {/* Results Grid */}
+            <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+                {results.map((track) => (
+                    <div key={track.id} className="bg-gray-700 p-3 rounded-md flex items-center justify-between hover:bg-gray-600 transition-colors group">
+                         <div className="flex items-center gap-3 overflow-hidden">
+                             <div className="w-8 h-8 bg-orange-700 rounded-full flex items-center justify-center text-white flex-shrink-0">
+                                 <VolumeXIcon className="w-4 h-4" />
+                             </div>
+                             <div className="min-w-0">
+                                 <div className="text-gray-200 font-medium truncate">{track.name}</div>
+                                 <div className="text-xs text-gray-400">{track.tags}</div>
+                             </div>
+                         </div>
+                         <div className="flex items-center gap-2 flex-shrink-0">
+                             <audio src={track.url} controls className="h-6 w-24 opacity-50 hover:opacity-100" />
+                             <button 
+                                onClick={() => handleSelect(track)} 
+                                className="px-3 py-1.5 text-xs font-bold bg-green-600 hover:bg-green-500 rounded-full text-white transition-colors flex items-center gap-1"
+                             >
+                                <PlusIcon className="w-3 h-3" /> Add
+                             </button>
+                         </div>
+                    </div>
+                ))}
+                {!isLoading && results.length === 0 && prompt && !error && (
+                    <div className="text-center text-gray-500 py-8">
+                        Enter a prompt to find sounds.
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default AIToolsModal;

@@ -29,6 +29,9 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   
+  // Hover Preview State
+  const [hoveredVideoId, setHoveredVideoId] = useState<number | null>(null);
+  
   // Wizard state
   const [wizardStep, setWizardStep] = useState<WizardStep>(mode === 'wizard' ? 'source' : 'search');
   
@@ -58,6 +61,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
     } else {
         setResults([]);
         setSuggestions([]);
+        setHoveredVideoId(null);
     }
   }, [isOpen, initialKeywords, mode]);
 
@@ -79,6 +83,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
     const requestId = ++activeRequestRef.current;
     setIsLoading(true);
     setError(null);
+    setHoveredVideoId(null);
     
     if (results.length > 0) {
          setResults([]);
@@ -166,8 +171,11 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
         }
     } else {
         if (item.video_files && item.video_files.length > 0) {
-            const hdFile = item.video_files.find((f: any) => f.quality === 'hd');
-            onSelectMedia(hdFile?.link || item.video_files[0].link, 'video');
+            // Select High Quality for the actual project
+            const hdFile = item.video_files.find((f: any) => f.quality === 'hd') || 
+                           item.video_files.find((f: any) => f.width >= 1280) ||
+                           item.video_files[0];
+            onSelectMedia(hdFile?.link, 'video');
         }
     }
     onClose();
@@ -377,8 +385,8 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                   <input 
                       type="file" 
                       accept="image/*,video/*" 
-                      ref={fileInputRef}
-                      className="hidden"
+                      ref={fileInputRef} 
+                      className="hidden" 
                       onChange={handleFileUpload}
                   />
                   <button 
@@ -398,8 +406,20 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-4">
                 {results.map((item, index) => {
                     const isVideo = item._type === 'video' || !!item.video_files;
+                    
+                    // For videos, get the tiny version for fast preview
+                    const previewVideoUrl = isVideo 
+                        ? (item.video_files.find((v: any) => v.quality === 'tiny')?.link || item.video_files[0]?.link) 
+                        : null;
+
                     return (
-                        <div key={`${item.id}-${index}`} className="aspect-video bg-gray-800 rounded-md overflow-hidden cursor-pointer group relative shadow-md border border-gray-700 hover:border-purple-500 transition-all" onClick={() => handleSelect(item)}>
+                        <div 
+                            key={`${item.id}-${index}`} 
+                            className="aspect-video bg-gray-800 rounded-md overflow-hidden cursor-pointer group relative shadow-md border border-gray-700 hover:border-purple-500 transition-all" 
+                            onClick={() => handleSelect(item)}
+                            onMouseEnter={() => isVideo && setHoveredVideoId(item.id)}
+                            onMouseLeave={() => setHoveredVideoId(null)}
+                        >
                             {/* Type Badge */}
                             <div className={`absolute top-2 left-2 px-2 py-0.5 rounded text-[9px] font-bold text-white z-10 shadow-sm ${isVideo ? 'bg-teal-600' : 'bg-pink-600'}`}>
                                 {isVideo ? 'VIDEO' : 'PHOTO'}
@@ -409,31 +429,31 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                                 <img src={item.src?.medium} alt={item.alt} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"/>
                             ) : (
                                 <>
-                                    {item.video_files && item.video_files.length > 0 ? (
+                                    {/* Video Logic: Show Poster by default, Video on Hover */}
+                                    {hoveredVideoId === item.id ? (
                                         <video 
-                                            src={item.video_files[0].link} 
-                                            poster={item.image} 
+                                            src={previewVideoUrl} 
+                                            autoPlay 
                                             muted 
                                             loop 
                                             playsInline 
-                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                            onMouseOver={e => (e.currentTarget as any).play().catch(() => {})}
-                                            onMouseOut={e => {
-                                                (e.currentTarget as any).pause();
-                                                (e.currentTarget as any).currentTime = 0;
-                                            }}
+                                            className="w-full h-full object-cover animate-fade-in"
                                         />
                                     ) : (
-                                        <div className="w-full h-full flex items-center justify-center bg-gray-800 text-gray-500 text-xs">No Video Preview</div>
+                                        <>
+                                            <img src={item.image} alt="Video Preview" className="w-full h-full object-cover" loading="lazy" />
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors pointer-events-none">
+                                                <div className="bg-black/50 p-2 rounded-full backdrop-blur-sm border border-white/20 shadow-lg transform group-hover:scale-110 transition-transform">
+                                                    <PlayIcon className="w-6 h-6 text-white"/>
+                                                </div>
+                                            </div>
+                                        </>
                                     )}
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                        <div className="bg-purple-600 p-2 rounded-full shadow-lg transform scale-90 group-hover:scale-100 transition-transform">
-                                            <PlayIcon className="w-5 h-5 text-white"/>
-                                        </div>
-                                    </div>
                                 </>
                             )}
-                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            
+                            {/* Credits Overlay (Bottom) */}
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <p className="text-[10px] text-white truncate">{item.user?.name || item.photographer}</p>
                             </div>
                         </div>

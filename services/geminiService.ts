@@ -29,14 +29,15 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
         
         CRITICAL INSTRUCTIONS FOR MEDIA SELECTION (Relevance is Key):
         1. **1 Visual Keyword = 1 Segment**: Create a separate segment for every distinct visual change.
-        2. **Visual Search Phrase (MOST IMPORTANT)**: The 'search_keywords_for_media' MUST be a specific search query optimized for Pexels/Shutterstock.
-           - **RULE**: Use the formula "Subject + Action + Setting + Style".
-           - **FORBIDDEN**: Abstract nouns (e.g., "Success", "History", "Knowledge", "Freedom", "Chaos"). Stock engines cannot understand these.
+        2. **Visual Search Phrase (MOST IMPORTANT)**: The 'search_keywords_for_media' MUST be a specific search query optimized for Pexels.
+           - **RULE**: Use STRICTLY TWO WORDS. Format: "Noun + Verb" or "Adjective + Noun".
+           - **FORBIDDEN**: Abstract nouns (e.g., "Success", "History", "Chaos").
            - **REQUIRED**: Concrete, visible physical objects or people.
-           - **Example (Bad)**: "Ancient history" -> **Example (Good)**: "Ancient roman colosseum drone shot sunny".
-           - **Example (Bad)**: "Business growth" -> **Example (Good)**: "Business people shaking hands modern office".
-           - **Example (Bad)**: "Thinking" -> **Example (Good)**: "Close up eye looking at computer screen reflection".
-           - If the narration mentions a specific object (e.g., "Pizza"), the media MUST be that object ("Pepperoni pizza slice cheese pull").
+           - **Example (Bad)**: "Ancient history of rome" -> **Example (Good)**: "Roman Colosseum".
+           - **Example (Bad)**: "Business growth strategy" -> **Example (Good)**: "Office Meeting".
+           - **Example (Bad)**: "Thinking about life" -> **Example (Good)**: "Sad Man".
+           - **Example (Bad)**: "Industrial revolution factory" -> **Example (Good)**: "Factory Worker".
+           - **Example (Bad)**: "Train moving fast" -> **Example (Good)**: "Fast Train".
         3. **Split Narration**: Break text so it aligns perfectly with the visual change.
         4. **Music Theme**: Suggest "background_music_keywords" (Genre + Mood + Instrument).
         5. **Sound Effects**: Provide specific "sfx_keywords" for actions (e.g. 'camera shutter', 'pouring water').
@@ -67,7 +68,7 @@ export async function generateVideoScript(topic: string, requestedDuration: stri
                                 },
                                 search_keywords_for_media: { 
                                     type: Type.STRING,
-                                    description: "A highly specific 3-5 word search phrase. Must be a visual description of a scene."
+                                    description: "A strict 2-word search phrase (e.g. 'Factory Worker', 'Blue Sky')."
                                 },
                                 duration: {
                                     type: Type.INTEGER,
@@ -288,13 +289,14 @@ export async function generateVisualsFromAudio(base64Audio: string, mimeType: st
 
                         CRITICAL INSTRUCTIONS FOR MEDIA MATCHING:
                         1. **LISTEN TO THE WORDS**: If this is a speech/narration, you MUST extract concrete visual nouns and actions from the spoken text.
-                           - If audio says: "The red car drove fast", keyword MUST contain "red car driving fast".
-                           - If audio says: "Our team collaborates in the office", keyword MUST contain "office team meeting".
-                        2. **AVOID ABSTRACT CONCEPTS**: Do NOT use keywords like "Success", "Motivation", "Journey", "History". Stock search engines fail with these.
-                           - Convert "Success" -> "Man on mountain top arms up".
-                           - Convert "History" -> "Old vintage map library".
-                        3. **IF MUSIC ONLY**: Describe the mood visually (e.g., "Upbeat" -> "People dancing party strobe lights", "Calm" -> "Slow motion river nature").
-                        4. **KEYWORD FORMAT**: Use "Subject + Action + Setting + Lighting/Style" (e.g., "Cat sleeping on sofa sunny window").
+                           - If audio says: "The red car drove fast", keyword MUST be "Red Car".
+                           - If audio says: "Our team collaborates in the office", keyword MUST be "Office Team".
+                        2. **SEARCH OPTIMIZATION**: 
+                           - Use STRICTLY TWO WORDS per keyword.
+                           - **NO** "cinematic shot of...", just "Noun + Adjective" or "Noun + Verb".
+                           - **NO** abstract concepts ("Success" -> "Man Hiking").
+                        3. **IF MUSIC ONLY**: Describe the mood visually (e.g., "Party Dancing", "Flowing River").
+                        4. **SEGMENTATION**: Create segments that align with visual changes in the narrative.
 
                         ${durationInstruction}
                         
@@ -315,7 +317,7 @@ export async function generateVisualsFromAudio(base64Audio: string, mimeType: st
                                         duration: { type: Type.NUMBER },
                                         search_keywords_for_media: { 
                                             type: Type.STRING,
-                                            description: "A highly specific, concrete search phrase (3-6 words) describing a PHYSICAL SCENE based on the audio content." 
+                                            description: "A precise 2-word search phrase (e.g. 'Sleeping Cat', 'Business Meeting')." 
                                         },
                                         narration_text: { type: Type.STRING }
                                     },
@@ -388,20 +390,20 @@ export async function suggestMediaKeywords(narrationText: string, videoContext?:
       model: 'gemini-2.5-flash',
       contents: `You are a Stock Footage Search Query Expert.
       
-      Task: Convert the following narration text into highly effective search queries for Pexels/Pixabay/Shutterstock.
+      Task: Convert the following narration text into highly effective search queries for Pexels.
       ${contextPrompt}
       Narration: "${narrationText}"
       
       Instructions:
       1. IGNORE abstract concepts (e.g., "journey", "success", "future").
-      2. EXTRACT concrete, visual subjects and actions that literally appear on screen.
-      3. Use "Subject + Action + Context" format.
+      2. EXTRACT concrete, visual subjects.
+      3. Use STRICTLY TWO WORDS per phrase (Format: "Noun + Verb" or "Adjective + Noun").
       4. Format output as a comma-separated list of 3 DISTINCT search phrases.
       
       Examples:
-      - Narration: "Our company is reaching new heights." -> Output: Hiker on mountain top, Modern skyscraper looking up, Business team high five
-      - Narration: "The mind is a complex web of thoughts." -> Output: Neural network animation, Glowing fiber optics, Abstract brain lights
-      - Narration: "He cooked a delicious meal." -> Output: Chef cooking steak, Sizzling pan close up, Family eating dinner
+      - Narration: "Our company is reaching new heights." -> Output: Mountain Hiker, Modern Skyscraper, Business Team
+      - Narration: "The mind is a complex web of thoughts." -> Output: Neural Network, Fiber Optics, Brain Model
+      - Narration: "He cooked a delicious meal." -> Output: Chef Cooking, Sizzling Pan, Family Dinner
       
       Output ONLY the comma-separated list. No explanations.
       `,

@@ -610,6 +610,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             activeClipId={activeSegment?.media[0]?.id || ''}
             onUpdateMedia={handleAIToolsUpdateMedia}
             onUpdateAudio={handleAIToolsUpdateAudio}
+            onAddAudioTrack={handleResourceSelectAudio}
             initialTab={activeAIToolTab}
             allSegments={segments}
             onGenerateAllNarrations={handleGenerateAllNarrations} // Updated for robust sequential processing
