@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { VideoScript, Segment, TransitionEffect, AIToolTab, TextOverlayStyle, AudioClip } from '../types';
+import { VideoScript, Segment, TransitionEffect, AIToolTab, AudioClip } from '../types';
 import Sidebar from './Sidebar';
 import Timeline from './Timeline';
 import PreviewWindow from './PreviewWindow';
@@ -138,8 +138,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           
           // Show toast or alert
           const toast = document.createElement('div');
-          toast.className = 'fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-[100] animate-fade-in-up';
-          toast.textContent = 'Project Saved Successfully';
+          toast.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-full shadow-lg z-[100] animate-fade-in-up text-sm font-bold flex items-center gap-2';
+          toast.innerHTML = '<span>Project Saved</span>';
           document.body.appendChild(toast);
           setTimeout(() => toast.remove(), 2000);
 
@@ -417,12 +417,13 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   return (
     <div className="flex flex-col md:flex-row h-full w-full overflow-hidden bg-black text-white relative">
-        {/* DESKTOP SIDEBAR (Left) */}
-        <div className="hidden md:block h-full z-20">
+        
+        {/* DESKTOP SIDEBAR (Hidden on Mobile) */}
+        <div className="hidden md:block h-full z-30 shrink-0">
             <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
         </div>
 
-        {/* RESOURCE PANEL (Responsive: Fullscreen Mobile, Drawer Desktop) */}
+        {/* RESOURCE PANEL (Responsive: Fullscreen Overlay on Mobile, Drawer on Desktop) */}
         {isResourcePanelOpen && (
             <div className={`
                 fixed z-[60] bg-[#1e1e1e] flex flex-col shadow-2xl overflow-hidden animate-slide-in-up md:animate-slide-in-left
@@ -456,19 +457,21 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             </div>
         )}
 
-        {/* MAIN AREA */}
-        <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0 relative">
-             {/* TOP SECTION: PREVIEW & TOOLBAR */}
-             <div className="flex-none flex flex-col bg-[#0a0a0a] relative z-10 md:h-[60%]">
-                 {/* PREVIEW WINDOW */}
-                 <div className="flex-grow relative overflow-hidden flex items-center justify-center p-2 md:p-4 min-h-[40vh] md:min-h-0">
+        {/* MAIN EDIT AREA */}
+        <div className="flex-1 flex flex-col min-w-0 relative h-full">
+             
+             {/* TOP HALF: PREVIEW + TOOLBAR */}
+             <div className="flex-none flex flex-col bg-[#0a0a0a] relative z-10 h-[50vh] md:h-[60%] border-b border-white/10">
+                 
+                 {/* 1. Preview Window (Responsive sizing) */}
+                 <div className="flex-grow relative overflow-hidden flex items-center justify-center p-2 md:p-4">
                     {activeSegment && (
                          <PreviewWindow 
                             title={title}
                             onTitleChange={setTitle}
                             segment={activeSegment}
                             segments={segments}
-                            audioTracks={audioTracks} // PASS GLOBAL AUDIO TRACKS
+                            audioTracks={audioTracks} 
                             activeSegmentId={activeSegmentId || ''}
                             onUpdateSegments={setSegments}
                             currentTime={currentTime}
@@ -478,15 +481,13 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                             onSeek={handleSeek}
                          />
                     )}
-                    {/* Header Actions Overlay */}
+                    
+                    {/* Header Actions Overlay (Save/Export) */}
                     <div className="absolute top-2 right-2 md:top-4 md:right-4 flex gap-2 z-50">
-                         
-                         {/* Preview Button */}
                          <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm shadow-md transition-colors" title="Fullscreen Preview">
                              <PlayIcon className="w-5 h-5" />
                          </button>
 
-                         {/* Save/Export Dropdown Button */}
                          <div className="relative" ref={saveMenuRef}>
                             <button 
                                 onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
@@ -532,7 +533,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                     </div>
                  </div>
                  
-                 {/* TOOLBAR */}
+                 {/* 2. Toolbar */}
                  <div className="h-12 md:h-14 bg-[#1e1e1e] border-t border-black/50 z-20 flex-shrink-0">
                      <Toolbar 
                         activeMenu={activeMenu}
@@ -552,10 +553,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                  </div>
              </div>
 
-             {/* BOTTOM SECTION: TIMELINE & PROPERTIES */}
-             <div className="flex-1 flex flex-col min-h-0 bg-[#161616]">
-                 {/* TIMELINE (Takes remaining space) */}
-                 <div className="flex-1 min-h-[150px] relative flex flex-col">
+             {/* BOTTOM HALF: TIMELINE & PROPERTIES */}
+             <div className="flex-1 flex flex-col min-h-0 bg-[#161616] mb-16 md:mb-0">
+                 
+                 {/* 3. Timeline */}
+                 <div className="flex-1 min-h-[120px] relative flex flex-col">
                      <Timeline 
                         segments={segments}
                         audioTracks={audioTracks}
@@ -579,8 +581,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                      />
                  </div>
                  
-                 {/* PROPERTIES PANEL (Bottom Area above Nav) */}
-                 <div className="flex-shrink-0 border-t border-white/5 z-20 bg-[#1e1e1e] overflow-x-auto">
+                 {/* 4. Properties Panel (Collapsible/Scrollable on mobile) */}
+                 <div className="flex-shrink-0 border-t border-white/5 z-20 bg-[#1e1e1e] overflow-x-auto overflow-y-hidden">
                      <PropertiesPanel 
                         segment={activeSegment}
                         audioTrack={activeAudioTrack}
@@ -597,8 +599,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
              </div>
         </div>
 
-        {/* MOBILE BOTTOM NAVIGATION (Fixed) */}
-        <div className="md:hidden">
+        {/* MOBILE BOTTOM NAVIGATION (Fixed at very bottom) */}
+        <div className="md:hidden z-50 fixed bottom-0 left-0 right-0 bg-[#161616] border-t border-white/10 shadow-2xl">
             <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
         </div>
 
@@ -613,7 +615,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             onAddAudioTrack={handleResourceSelectAudio}
             initialTab={activeAIToolTab}
             allSegments={segments}
-            onGenerateAllNarrations={handleGenerateAllNarrations} // Updated for robust sequential processing
+            onGenerateAllNarrations={handleGenerateAllNarrations} 
             generationProgress={generationProgress}
             onCancelGeneration={handleCancelGeneration}
         />

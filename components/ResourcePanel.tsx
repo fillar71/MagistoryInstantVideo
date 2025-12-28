@@ -399,7 +399,8 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                         <div className="text-[10px] text-gray-500 text-right mb-2 flex items-center justify-end gap-1">
                             <span>Powered by Pexels</span>
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
+                        {/* Responsive Grid: 2 columns mobile, 3 tablet, 3-4 desktop depending on panel width */}
+                        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-2">
                             {results.map((item, i) => (
                             <div 
                                 key={i} 
@@ -419,8 +420,6 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                                             loop 
                                             playsInline
                                             onError={(e) => {
-                                                // Fallback if video fails to load, show poster instead or placeholder
-                                                // We can't easily swap to an image tag here without re-rendering, so we hide the video and show the image underneath
                                                 (e.target as HTMLVideoElement).style.display = 'none';
                                             }}
                                         />
@@ -432,7 +431,6 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                                                 loading="lazy" 
                                                 onError={handleImageError}
                                             />
-                                            {/* Play Icon Overlay */}
                                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                                 <div className="bg-black/40 rounded-full p-1.5 backdrop-blur-[1px]">
                                                     <PlayIcon className="w-5 h-5 text-white/90" />
@@ -443,7 +441,6 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
 
                                     <div className="absolute top-1 right-1 bg-black/60 rounded px-1 text-[7px] font-bold text-white z-20 pointer-events-none">VIDEO</div>
                                     
-                                    {/* Download Indicator */}
                                     {downloadingId === item.id && (
                                         <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center z-30">
                                             <LoadingSpinner />
@@ -461,13 +458,9 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                                 )}
                                 <div className="absolute inset-0 bg-black/20 group-hover:bg-black/0 transition-colors pointer-events-none"></div>
                                 
-                                {/* Credits & License Overlay */}
                                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none flex flex-col justify-end min-h-[40px]">
                                     <p className="text-[9px] text-gray-300 leading-tight">
                                         {item.type === 'video' ? 'Video' : 'Photo'} by <span className="text-white font-medium hover:underline">{item.photographer || item.user?.name}</span> on Pexels
-                                    </p>
-                                    <p className="text-[8px] text-green-400 mt-1 font-medium bg-green-900/30 inline-block px-1 rounded border border-green-500/20 w-fit">
-                                        Free for Commercial Use
                                     </p>
                                 </div>
                             </div>

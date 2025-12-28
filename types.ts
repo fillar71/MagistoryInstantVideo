@@ -36,6 +36,7 @@ export interface Segment {
   textOverlayStyle?: TextOverlayStyle;
   duration: number; // Duration in seconds
   wordTimings?: WordTiming[];
+  sfx_keywords?: string;
 }
 
 export interface AudioClip {

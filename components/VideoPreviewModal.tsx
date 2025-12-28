@@ -52,23 +52,21 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
     const durationMs = currentSegment.duration * 1000;
     let startTime = Date.now();
 
-    // Track internal time within the segment for karaoke and clip switching
     const intervalId = (window as any).setInterval(() => {
         const delta = (Date.now() - startTime) / 1000;
         setCurrentTimeInSegment(delta);
     }, 50);
 
     timerRef.current = (window as any).setTimeout(() => {
-        (window as any).clearInterval(intervalId); // Stop tracking time for this segment
+        (window as any).clearInterval(intervalId);
         setCurrentTimeInSegment(0);
 
         if (currentIndexRef.current >= segments.length - 1) {
-            // End of video
             if (audioRef.current) (audioRef.current as any).pause();
             return;
         }
         
-        playAudioForSegment(null); // Stop current audio
+        playAudioForSegment(null);
 
         const outgoingSegment = segments[currentIndexRef.current];
         const incomingSegment = segments[currentIndexRef.current + 1];
@@ -79,9 +77,8 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
         ]);
 
         currentIndexRef.current += 1;
-        playAudioForSegment(incomingSegment); // Play next audio
+        playAudioForSegment(incomingSegment);
 
-        // After transition, clean up
         setTimeout(() => {
             setDisplaySegments(prev => 
                 prev.filter(s => s.id === incomingSegment.id)
@@ -129,6 +126,16 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
     };
   }, [isOpen, segments]);
 
+  const handleMediaError = (e: React.SyntheticEvent<HTMLImageElement | HTMLVideoElement, Event>) => {
+      // If media fails, show placeholder
+      const target = e.target as HTMLImageElement; // Cast safe for both src manipulation
+      console.warn("Preview media failed to load:", target.src);
+      // Fallback for visual
+      if (!target.src.includes('placehold.co')) {
+          target.src = 'https://placehold.co/1280x720/000/FFF?text=Media+Error';
+      }
+  };
+
   if (!isOpen) return null;
 
   const activeSegment = displaySegments.find(s => s.animationState !== 'exit') || displaySegments[0] || null;
@@ -147,7 +154,6 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
         const style = segment.textOverlayStyle;
         if (!style || !segment.narration_text) return null;
         
-        // Only render if timings exist (explicitly generated via "Auto Subtitle")
         const timings = segment.wordTimings;
         if (!timings || timings.length === 0) {
             return null;
@@ -157,7 +163,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
             timings, 
             style.fontSize, 
             style.maxCaptionLines || 2,
-            1280 // Use larger width for full screen preview
+            1280 
         );
 
         const activeChunk = subtitleChunks.find(c => currentTimeInSegment >= c.start && currentTimeInSegment <= c.end);
@@ -216,20 +222,15 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
   const renderMedia = (segment: DisplaySegment) => {
     const classNames = `transition-image ${getAnimationClass(segment)}`;
     
-    // Determine which clip to show based on time
     let currentClip = segment.media[0];
     if (segment.media.length > 1) {
         const clipDuration = segment.duration / segment.media.length;
-        // If it's an incoming/outgoing segment, we usually just show the start (0) or end
-        // For simplicity in transitions, we might just show the first clip for the transition duration
-        // but if it's 'stable', we use the actual time.
         if (segment.animationState === 'stable') {
             const index = Math.min(segment.media.length - 1, Math.floor(currentTimeInSegment / clipDuration));
             currentClip = segment.media[index];
         } else if (segment.animationState === 'enter') {
             currentClip = segment.media[0];
         } else if (segment.animationState === 'exit') {
-            // If exiting, show the last clip
              currentClip = segment.media[segment.media.length - 1];
         }
     }
@@ -237,13 +238,14 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
      if (currentClip.type === 'video') {
         return (
             <video
-                key={`${segment.id}-${currentClip.id}`} // Key change forces re-render for new clip
+                key={`${segment.id}-${currentClip.id}`}
                 src={currentClip.url}
                 className={classNames}
                 autoPlay
                 muted
                 loop
                 playsInline
+                onError={handleMediaError}
             />
         )
      }
@@ -253,6 +255,7 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
             src={currentClip.url} 
             alt={segment.search_keywords_for_media} 
             className={classNames}
+            onError={handleMediaError}
         />
      )
   }
@@ -279,7 +282,6 @@ const VideoPreviewModal: React.FC<VideoPreviewModalProps> = ({ isOpen, onClose, 
         <div className="w-full h-full bg-black rounded-md overflow-hidden relative flex items-center justify-center">
             {displaySegments.map(segment => renderMedia(segment))}
             
-            {/* Text Overlay */}
             {activeSegment?.textOverlayStyle && activeSegment?.narration_text && (
                 <div className={`absolute inset-0 p-4 flex flex-col pointer-events-none z-10 ${getTextPositionClass(activeSegment.textOverlayStyle)}`}>
                     {renderKaraokeText(activeSegment)}

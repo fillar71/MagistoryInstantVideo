@@ -210,42 +210,42 @@ const Timeline: React.FC<TimelineProps> = ({
         <div className="h-full w-full bg-[#161616] relative flex flex-col select-none group touch-pan-x">
             
             {/* TIMELINE TOOLBAR */}
-            <div className="h-8 border-b border-white/5 flex items-center justify-between px-4 bg-[#1a1a1a] text-xs text-gray-400 select-none flex-shrink-0 z-30">
-                <div className="flex items-center gap-3">
+            <div className="h-10 md:h-8 border-b border-white/5 flex items-center justify-between px-2 md:px-4 bg-[#1a1a1a] text-xs text-gray-400 select-none flex-shrink-0 z-30">
+                <div className="flex items-center gap-2 md:gap-3">
                     <button 
                         onClick={onSplit}
-                        className="flex items-center gap-1.5 px-2 py-1 hover:bg-white/10 rounded text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded text-gray-300 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         title="Split Segment (S)"
                         disabled={!activeSegmentId}
                     >
-                        <ScissorsIcon className="w-3.5 h-3.5" />
-                        <span>Split</span>
+                        <ScissorsIcon className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                        <span className="hidden md:inline">Split</span>
                     </button>
                     <button 
                         onClick={handleDelete}
-                        className="flex items-center gap-1.5 px-2 py-1 hover:bg-white/10 rounded text-gray-300 hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded text-gray-300 hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                         title="Delete Selection (Del)"
                         disabled={!activeSegmentId && !activeAudioTrackId}
                     >
-                        <TrashIcon className="w-3.5 h-3.5" />
-                        <span>Delete</span>
+                        <TrashIcon className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                        <span className="hidden md:inline">Delete</span>
                     </button>
                     <div className="w-px h-4 bg-gray-700 mx-1"></div>
-                    <span className="font-mono text-white text-[10px]">{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
+                    <span className="font-mono text-white text-[10px] md:text-[10px]">{new Date(currentTime * 1000).toISOString().substr(14, 5)}</span>
                 </div>
                 
                 <div className="flex items-center gap-2">
-                    <button onClick={() => setTimelineZoom(z => Math.max(0.5, z-0.2))} className="hover:text-white hover:bg-white/10 w-6 h-6 rounded flex items-center justify-center text-lg">-</button>
-                    <div className="w-16 h-1 bg-gray-700 rounded-full overflow-hidden">
+                    <button onClick={() => setTimelineZoom(z => Math.max(0.5, z-0.2))} className="hover:text-white hover:bg-white/10 w-8 h-8 rounded flex items-center justify-center text-lg">-</button>
+                    <div className="w-10 md:w-16 h-1 bg-gray-700 rounded-full overflow-hidden">
                         <div className="h-full bg-purple-500 transition-all duration-200" style={{ width: `${(timelineZoom/3)*100}%` }}></div>
                     </div>
-                    <button onClick={() => setTimelineZoom(z => Math.min(3, z+0.2))} className="hover:text-white hover:bg-white/10 w-6 h-6 rounded flex items-center justify-center text-lg">+</button>
+                    <button onClick={() => setTimelineZoom(z => Math.min(3, z+0.2))} className="hover:text-white hover:bg-white/10 w-8 h-8 rounded flex items-center justify-center text-lg">+</button>
                 </div>
             </div>
 
             <div 
                 ref={scrollContainerRef}
-                className="overflow-x-auto overflow-y-auto custom-scrollbar flex-grow relative"
+                className="overflow-x-auto overflow-y-auto custom-scrollbar flex-grow relative touch-pan-x"
                 onMouseDown={handleTimelineClick}
             >
                 <div 
@@ -337,7 +337,7 @@ const Timeline: React.FC<TimelineProps> = ({
 
                                             {/* RESIZE HANDLE (Right) */}
                                             <div 
-                                                className="absolute top-0 bottom-0 right-0 w-4 cursor-ew-resize z-20 hover:bg-purple-500/50 flex items-center justify-center opacity-0 group-hover/clip:opacity-100 transition-opacity"
+                                                className="absolute top-0 bottom-0 right-0 w-6 cursor-ew-resize z-20 hover:bg-purple-500/50 flex items-center justify-center opacity-0 group-hover/clip:opacity-100 transition-opacity touch-none"
                                                 onMouseDown={(e) => handleMouseDown(e, 'resize-segment', segment.id, segment.duration)}
                                                 onClick={(e) => e.stopPropagation()}
                                             >
@@ -419,7 +419,7 @@ const Timeline: React.FC<TimelineProps> = ({
 
                                                 {/* RESIZE HANDLE (Right) */}
                                                 <div 
-                                                    className="absolute top-0 bottom-0 right-[-6px] w-4 cursor-ew-resize z-20 hover:bg-white/20 rounded flex items-center justify-center opacity-0 group-hover/audio:opacity-100"
+                                                    className="absolute top-0 bottom-0 right-[-6px] w-6 cursor-ew-resize z-20 hover:bg-white/20 rounded flex items-center justify-center opacity-0 group-hover/audio:opacity-100 touch-none"
                                                     onMouseDown={(e) => handleMouseDown(e, 'resize-audio', track.id, track.duration)}
                                                     onClick={(e) => e.stopPropagation()}
                                                 >

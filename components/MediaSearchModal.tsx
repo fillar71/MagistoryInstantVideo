@@ -47,8 +47,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
       } else {
           setWizardStep('search');
           setQuery(initialKeywords);
-          // If we have narration text, let's auto-suggest context-aware keywords
-          // providing instant inspiration based on the script
           if (narrationText && (!initialKeywords || initialKeywords === 'placeholder')) {
               handleSuggest();
           }
@@ -66,11 +64,10 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
   }, [isOpen, initialKeywords, mode]);
 
   useEffect(() => {
-      // Auto-fetch media if we have a valid query and are in search mode
       if (isOpen && searchType !== 'upload' && wizardStep === 'search' && query && query !== 'placeholder') {
           fetchMedia();
       }
-  }, [isOpen, searchType, orientation, wizardStep]); // removed query from dependency to prevent double fetch on typing, handled by submit/suggestion
+  }, [isOpen, searchType, orientation, wizardStep]);
   
   const fetchMedia = async (overrideQuery?: string) => {
     const activeQuery = overrideQuery !== undefined ? overrideQuery : query;
@@ -98,7 +95,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                 searchPexelsVideos(activeQuery, orientation)
             ]);
             
-            // Interleave results to show a mix
             const maxLength = Math.max(photos.length, videos.length);
             for (let i = 0; i < maxLength; i++) {
                 if (photos[i]) data.push(photos[i]);
@@ -117,7 +113,7 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
         }
     } catch (err: any) {
         if (requestId === activeRequestRef.current) {
-            setError(err.message || "Failed to fetch media from Pexels. Check your API key and network connection.");
+            setError(err.message || "Failed to fetch media from Pexels.");
             setResults([]);
         }
     } finally {
@@ -144,7 +140,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
   const handleSuggest = async () => {
     if (!narrationText) return;
     setIsSuggesting(true);
-    // setError(null); // Suggestion error shouldn't clear search error
     try {
       const suggestedString = await suggestMediaKeywords(narrationText, videoTitle);
       const parts = suggestedString.split(',').map(s => s.trim()).filter(s => s.length > 2);
@@ -162,7 +157,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
   };
   
   const handleSelect = (item: any) => {
-    // Determine type based on explicit tag or property detection
     const isVideo = item._type === 'video' || (item.video_files && item.video_files.length > 0);
 
     if (!isVideo) {
@@ -171,7 +165,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
         }
     } else {
         if (item.video_files && item.video_files.length > 0) {
-            // Select High Quality for the actual project
             const hdFile = item.video_files.find((f: any) => f.quality === 'hd') || 
                            item.video_files.find((f: any) => f.width >= 1280) ||
                            item.video_files[0];
@@ -191,9 +184,16 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
       }
   };
 
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+      // Robust Fallback: 1. Try generic placeholder, 2. If that fails (unlikely), set transparent
+      const target = e.target as HTMLImageElement;
+      if (!target.src.includes('placehold.co')) {
+          target.src = 'https://placehold.co/600x400/333/999?text=Image+Unavailable';
+      }
+  }
+
   if (!isOpen) return null;
 
-  // --- Wizard: Step 1 (Source) ---
   if (wizardStep === 'source') {
       return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
@@ -225,7 +225,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                   </button>
               </div>
 
-              {/* Hidden file input for direct trigger */}
               <input 
                   type="file" 
                   accept="image/*,video/*" 
@@ -238,7 +237,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
       )
   }
 
-  // --- Wizard: Step 2 (Pexels Type) ---
   if (wizardStep === 'pexels-type') {
       return (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
@@ -270,7 +268,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
       )
   }
 
-  // --- Default / Wizard Step 3 (Search) ---
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in" onClick={onClose}>
       <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col p-6" onClick={e => e.stopPropagation()}>
@@ -318,7 +315,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                 </button>
                 </form>
 
-                {/* AI Suggestions Display */}
                 {(suggestions.length > 0 || isSuggesting) && (
                     <div className="flex flex-wrap gap-2 mb-4 items-center animate-fade-in bg-gray-900/50 p-2 rounded-lg border border-gray-700/50">
                         <span className="text-[10px] text-purple-300 font-bold uppercase tracking-wider flex items-center mr-1">
@@ -341,7 +337,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
             </>
         )}
         
-        {/* Only show nav tabs if NOT in wizard mode, or if user wants to switch context freely */}
         {mode !== 'wizard' && (
             <div className="flex justify-between items-center border-b border-gray-700 mb-4">
             <nav className="flex gap-4">
@@ -407,7 +402,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                 {results.map((item, index) => {
                     const isVideo = item._type === 'video' || !!item.video_files;
                     
-                    // For videos, get the tiny version for fast preview
                     const previewVideoUrl = isVideo 
                         ? (item.video_files.find((v: any) => v.quality === 'tiny')?.link || item.video_files[0]?.link) 
                         : null;
@@ -420,16 +414,20 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                             onMouseEnter={() => isVideo && setHoveredVideoId(item.id)}
                             onMouseLeave={() => setHoveredVideoId(null)}
                         >
-                            {/* Type Badge */}
                             <div className={`absolute top-2 left-2 px-2 py-0.5 rounded text-[9px] font-bold text-white z-10 shadow-sm ${isVideo ? 'bg-teal-600' : 'bg-pink-600'}`}>
                                 {isVideo ? 'VIDEO' : 'PHOTO'}
                             </div>
 
                             {!isVideo ? (
-                                <img src={item.src?.medium} alt={item.alt} loading="lazy" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"/>
+                                <img 
+                                    src={item.src?.medium} 
+                                    alt={item.alt} 
+                                    loading="lazy" 
+                                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                    onError={handleImageError}
+                                />
                             ) : (
                                 <>
-                                    {/* Video Logic: Show Poster by default, Video on Hover */}
                                     {hoveredVideoId === item.id ? (
                                         <video 
                                             src={previewVideoUrl} 
@@ -438,10 +436,20 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                                             loop 
                                             playsInline 
                                             className="w-full h-full object-cover animate-fade-in"
+                                            onError={(e) => {
+                                                // Fallback to image if video fails
+                                                (e.target as HTMLVideoElement).style.display = 'none';
+                                            }}
                                         />
                                     ) : (
                                         <>
-                                            <img src={item.image} alt="Video Preview" className="w-full h-full object-cover" loading="lazy" />
+                                            <img 
+                                                src={item.image} 
+                                                alt="Video Preview" 
+                                                className="w-full h-full object-cover" 
+                                                loading="lazy" 
+                                                onError={handleImageError}
+                                            />
                                             <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors pointer-events-none">
                                                 <div className="bg-black/50 p-2 rounded-full backdrop-blur-sm border border-white/20 shadow-lg transform group-hover:scale-110 transition-transform">
                                                     <PlayIcon className="w-6 h-6 text-white"/>
@@ -452,7 +460,6 @@ const MediaSearchModal: React.FC<MediaSearchModalProps> = ({ isOpen, onClose, on
                                 </>
                             )}
                             
-                            {/* Credits Overlay (Bottom) */}
                             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <p className="text-[10px] text-white truncate">{item.user?.name || item.photographer}</p>
                             </div>

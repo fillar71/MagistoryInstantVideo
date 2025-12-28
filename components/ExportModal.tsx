@@ -208,7 +208,7 @@ const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, title, segme
                         consecutiveErrorsRef.current++;
                         if (consecutiveErrorsRef.current > 5) {
                             clearInterval(pollIntervalRef.current);
-                            setError("Connection to server lost. Check your network.");
+                            setError("Connection to server lost. Check your network or make sure the Render Server is running.");
                             setStatus('error');
                             return;
                         }
