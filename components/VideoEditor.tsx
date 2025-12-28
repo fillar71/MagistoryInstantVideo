@@ -11,7 +11,7 @@ import AIToolsModal from './AIToolsModal';
 import ExportModal from './ExportModal';
 import VideoPreviewModal from './VideoPreviewModal';
 import { ChevronLeftIcon, ExportIcon, PlayIcon, SaveIcon, ChevronDownIcon } from './icons';
-import { estimateWordTimings, getAudioDuration, createWavBlobUrl } from '../utils/media';
+import { estimateWordTimings, createWavBlobUrl, getAudioDuration } from '../utils/media';
 import { generateSpeechFromText } from '../services/geminiService';
 import { saveProject } from '../services/projectService';
 import LoadingSpinner from './LoadingSpinner';
@@ -53,17 +53,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
 
   // Saving State
   const [isSaving, setIsSaving] = useState(false);
-
-  // Generation Progress State
   const [generationProgress, setGenerationProgress] = useState<{ current: number; total: number } | null>(null);
   
-  // Ref to control stopping the generation loop
   const stopGenerationRef = useRef(false);
-
-  // Auth for Credit Deduction
   const { deductCredits } = useAuth();
-
-  // Refs for loop
   const requestRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number>(0);
 
@@ -72,7 +65,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   const activeSegment = segments.find(s => s.id === activeSegmentId) || null;
   const activeAudioTrack = audioTracks.find(t => t.id === activeAudioTrackId) || null;
 
-  // --- CLICK OUTSIDE HANDLER FOR DROPDOWN ---
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         if (saveMenuRef.current && !saveMenuRef.current.contains(event.target as Node)) {
@@ -83,7 +75,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- PLAYBACK LOGIC ---
   const animate = (time: number) => {
     if (lastTimeRef.current !== undefined) {
       const deltaTime = (time - lastTimeRef.current) / 1000;
@@ -122,27 +113,23 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       setIsPlaying(!isPlaying);
   };
 
-  // --- SAVE PROJECT ---
   const handleSaveProject = () => {
       setIsSaving(true);
       try {
           const projectData: VideoScript = {
-              id: projectId, // Maintain ID to overwrite
+              id: projectId,
               title,
               segments,
               audioTracks,
               backgroundMusicKeywords: initialScript.backgroundMusicKeywords
           };
           const saved = saveProject(projectData);
-          setProjectId(saved.id); // Update ID if it was new
-          
-          // Show toast or alert
+          setProjectId(saved.id); 
           const toast = document.createElement('div');
           toast.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-full shadow-lg z-[100] animate-fade-in-up text-sm font-bold flex items-center gap-2';
           toast.innerHTML = '<span>Project Saved</span>';
           document.body.appendChild(toast);
           setTimeout(() => toast.remove(), 2000);
-
       } catch (e) {
           alert("Failed to save project. Browser storage might be full.");
       } finally {
@@ -150,13 +137,11 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       }
   }
 
-  // --- SEGMENT MANIPULATION ---
   const handleUpdateSegment = (id: string, updates: Partial<Segment>) => {
       setSegments(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
   };
 
   const handleUpdateSegmentText = (id: string, text: string) => {
-      // Also update word timings estimate if text changes
       const seg = segments.find(s => s.id === id);
       if(seg) {
           const timings = estimateWordTimings(text, seg.duration);
@@ -174,22 +159,18 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   
   const handleSplitSegment = () => {
       if (!activeSegment) return;
-      // Calculate relative split time
       let elapsed = 0;
       for (const s of segments) {
           if (s.id === activeSegment.id) break;
           elapsed += s.duration;
       }
       const splitPoint = currentTime - elapsed;
-      
       if (splitPoint <= 0.5 || splitPoint >= activeSegment.duration - 0.5) {
           alert("Cannot split too close to the edge.");
           return;
       }
-
       const dur1 = splitPoint;
       const dur2 = activeSegment.duration - splitPoint;
-
       const seg1: Segment = {
           ...activeSegment,
           duration: dur1,
@@ -203,7 +184,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           wordTimings: [],
           media: JSON.parse(JSON.stringify(activeSegment.media)) 
       };
-
       const idx = segments.findIndex(s => s.id === activeSegment.id);
       const newSegs = [...segments];
       newSegs.splice(idx, 1, seg1, seg2);
@@ -244,22 +224,18 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       setActiveSegmentId(newSeg.id);
   }
 
-  // --- AUDIO TRACK MANIPULATION ---
   const handleUpdateAudioTrack = (id: string, updates: Partial<AudioClip>) => {
       setAudioTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
   }
   
   const handleAddAudioTrack = (type: 'music' | 'sfx') => {
-      // Open Resource Panel for Audio
       setResourceAudioType(type);
       setActiveResourceTab('audio');
       setIsResourcePanelOpen(true);
   }
 
-  // --- RESOURCE PANEL HANDLERS ---
   const handleResourceSelectMedia = (url: string, type: 'image' | 'video') => {
       if (activeSegmentId) {
-          // Replace media of active segment
           handleUpdateSegment(activeSegmentId, {
               media: [{
                   id: `clip-${Date.now()}`,
@@ -277,7 +253,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
           url,
           name,
           type,
-          startTime: currentTime, // Place at playhead
+          startTime: currentTime, 
           duration,
           volume: type === 'music' ? 0.3 : 0.8
       };
@@ -320,7 +296,6 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       }
   }
 
-  // --- AI TOOLS HANDLERS ---
   const handleAIToolsUpdateMedia = (url: string, type: 'image' | 'video') => {
       handleResourceSelectMedia(url, type);
   }
@@ -332,48 +307,34 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
       }
   }
 
-  // --- ROBUST SEQUENTIAL GENERATION HANDLER ---
   const handleGenerateAllNarrations = async () => {
-      // 1. Identify work
       const indicesToProcess = segments
           .map((s, i) => (s.narration_text && !s.audioUrl ? i : -1))
           .filter(i => i !== -1);
       
-      const totalCount = indicesToProcess.length;
-
-      if (totalCount === 0) {
-          alert("All segments with text already have audio! No new audio to generate.");
+      if (indicesToProcess.length === 0) {
+          alert("All segments with text already have audio!");
           return;
       }
 
-      // 2. Billing: Deduct credits (1 credit per clip for bulk)
-      const cost = totalCount * 1; 
+      const cost = indicesToProcess.length * 1; 
       const proceed = await deductCredits(cost, 'bulk_tts');
       if (!proceed) return;
 
-      // 3. Initialize Progress
-      setGenerationProgress({ current: 0, total: totalCount });
+      setGenerationProgress({ current: 0, total: indicesToProcess.length });
       stopGenerationRef.current = false;
       
       let completedCount = 0;
       let currentSegmentsState = [...segments];
 
-      // 4. Process Loop
       for (const idx of indicesToProcess) {
-          if (stopGenerationRef.current) {
-              console.log("Generation cancelled by user.");
-              break;
-          }
-
+          if (stopGenerationRef.current) break;
           const seg = currentSegmentsState[idx];
-          
           try {
-              // Generate - geminiService already handles reasonable retries
               const base64Audio = await generateSpeechFromText(seg.narration_text);
               const wavUrl = createWavBlobUrl(base64Audio);
               const duration = await getAudioDuration(wavUrl);
               
-              // Update state immediately
               currentSegmentsState[idx] = {
                   ...seg,
                   audioUrl: wavUrl,
@@ -381,30 +342,16 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                   audioVolume: 1.0,
                   wordTimings: estimateWordTimings(seg.narration_text, duration > 0 ? duration : seg.duration)
               };
-
-              // Commit to UI
               setSegments([...currentSegmentsState]);
-              
-              // Increment Progress
               completedCount++;
-              setGenerationProgress({ current: completedCount, total: totalCount });
-
-              // Small delay to prevent UI freeze and allow cancellation check
+              setGenerationProgress({ current: completedCount, total: indicesToProcess.length });
               await new Promise(r => setTimeout(r, 500));
-
-          } catch (e: any) {
-              console.error(`Failed to generate audio for segment ${idx}:`, e);
-              // In bulk mode, we skip failed items and continue to the next
-              // Maybe add a toast notification here later
+          } catch (e) {
+              console.error(`Failed segment ${idx}:`, e);
           }
       }
-      
       setGenerationProgress(null);
   };
-
-  const handleCancelGeneration = () => {
-      stopGenerationRef.current = true;
-  }
 
   const handleApplyTransitionToAll = (effect: TransitionEffect | 'random') => {
       const effects: TransitionEffect[] = ['fade', 'slide', 'zoom'];
@@ -418,12 +365,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
   return (
     <div className="flex flex-col md:flex-row h-full w-full overflow-hidden bg-black text-white relative">
         
-        {/* DESKTOP SIDEBAR (Hidden on Mobile) */}
-        <div className="hidden md:block h-full z-30 shrink-0">
-            <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
-        </div>
-
-        {/* RESOURCE PANEL (Responsive: Fullscreen Overlay on Mobile, Drawer on Desktop) */}
+        {/* RESOURCE PANEL (Overlay) */}
         {isResourcePanelOpen && (
             <div className={`
                 fixed z-[60] bg-[#1e1e1e] flex flex-col shadow-2xl overflow-hidden animate-slide-in-up md:animate-slide-in-left
@@ -431,13 +373,10 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             `}>
                 <div className="flex justify-between items-center p-4 border-b border-gray-700 bg-[#252525]">
                         <div className="flex items-center gap-2">
-                            <button onClick={() => setIsResourcePanelOpen(false)} className="md:hidden text-gray-400 hover:text-white">
-                                <ChevronLeftIcon className="w-6 h-6" />
-                            </button>
                             <span className="font-bold text-white capitalize text-lg">{activeResourceTab} Library</span>
                         </div>
-                        <button onClick={() => setIsResourcePanelOpen(false)} className="text-gray-400 hover:text-white p-1 hover:bg-white/10 rounded-full">
-                           <ChevronLeftIcon className="w-5 h-5 rotate-180 md:rotate-0" />
+                        <button onClick={() => setIsResourcePanelOpen(false)} className="text-gray-400 hover:text-white p-2">
+                           <ChevronDownIcon className="w-6 h-6 md:-rotate-90" />
                         </button>
                 </div>
                 <ResourcePanel 
@@ -457,14 +396,19 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             </div>
         )}
 
+        {/* DESKTOP SIDEBAR */}
+        <div className="hidden md:block h-full z-30 shrink-0">
+            <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
+        </div>
+
         {/* MAIN EDIT AREA */}
         <div className="flex-1 flex flex-col min-w-0 relative h-full">
              
              {/* TOP HALF: PREVIEW + TOOLBAR */}
-             <div className="flex-none flex flex-col bg-[#0a0a0a] relative z-10 h-[50vh] md:h-[60%] border-b border-white/10">
+             <div className="flex-none flex flex-col bg-[#0a0a0a] relative z-10 border-b border-white/10" style={{ height: '45%' }}>
                  
-                 {/* 1. Preview Window (Responsive sizing) */}
-                 <div className="flex-grow relative overflow-hidden flex items-center justify-center p-2 md:p-4">
+                 {/* Preview Window */}
+                 <div className="flex-grow relative overflow-hidden flex items-center justify-center p-2 bg-black">
                     {activeSegment && (
                          <PreviewWindow 
                             title={title}
@@ -482,50 +426,34 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                          />
                     )}
                     
-                    {/* Header Actions Overlay (Save/Export) */}
-                    <div className="absolute top-2 right-2 md:top-4 md:right-4 flex gap-2 z-50">
-                         <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm shadow-md transition-colors" title="Fullscreen Preview">
-                             <PlayIcon className="w-5 h-5" />
+                    {/* Header Actions */}
+                    <div className="absolute top-2 right-2 flex gap-2 z-50">
+                         <button onClick={() => setShowPreviewModal(true)} className="bg-gray-800/80 hover:bg-gray-700 text-white p-2 rounded-full backdrop-blur-sm shadow-md" title="Fullscreen">
+                             <PlayIcon className="w-4 h-4" />
                          </button>
 
                          <div className="relative" ref={saveMenuRef}>
                             <button 
                                 onClick={() => setIsSaveMenuOpen(!isSaveMenuOpen)} 
-                                className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 md:px-4 rounded-full font-bold shadow-lg flex items-center gap-2 transition-colors border border-purple-500/50 text-xs md:text-sm"
+                                className="bg-purple-600 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-lg flex items-center gap-1 border border-purple-500/50"
                             >
-                                <span className="hidden sm:inline">Save/Export</span>
-                                <span className="sm:hidden">Save</span>
-                                <ChevronDownIcon className={`w-4 h-4 transition-transform duration-200 ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
+                                <span>Export</span>
+                                <ChevronDownIcon className={`w-3 h-3 ${isSaveMenuOpen ? 'rotate-180' : ''}`} />
                             </button>
-
                             {isSaveMenuOpen && (
-                                <div className="absolute right-0 top-full mt-2 w-48 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-1 z-50 overflow-hidden animate-fade-in">
+                                <div className="absolute right-0 top-full mt-2 w-40 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-1 z-50 overflow-hidden">
                                     <button 
-                                        onClick={() => {
-                                            handleSaveProject();
-                                            setIsSaveMenuOpen(false);
-                                        }}
+                                        onClick={() => { handleSaveProject(); setIsSaveMenuOpen(false); }}
                                         disabled={isSaving}
-                                        className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors border-b border-gray-700/50"
+                                        className="w-full text-left px-4 py-3 text-xs text-gray-200 hover:bg-gray-700 flex items-center gap-2 border-b border-gray-700/50"
                                     >
-                                        {isSaving ? <LoadingSpinner /> : <SaveIcon className="w-4 h-4 text-green-400" />}
-                                        <div className="flex flex-col">
-                                            <span className="font-semibold">Save Project</span>
-                                            <span className="text-[10px] text-gray-400">Save progress to server</span>
-                                        </div>
+                                        <SaveIcon className="w-3 h-3 text-green-400" /> Save Project
                                     </button>
                                     <button 
-                                        onClick={() => {
-                                            setShowExportModal(true);
-                                            setIsSaveMenuOpen(false);
-                                        }}
-                                        className="w-full text-left px-4 py-3 text-sm text-gray-200 hover:bg-gray-700 hover:text-white flex items-center gap-3 transition-colors"
+                                        onClick={() => { setShowExportModal(true); setIsSaveMenuOpen(false); }}
+                                        className="w-full text-left px-4 py-3 text-xs text-gray-200 hover:bg-gray-700 flex items-center gap-2"
                                     >
-                                        <ExportIcon className="w-4 h-4 text-blue-400" />
-                                        <div className="flex flex-col">
-                                            <span className="font-semibold">Export Video</span>
-                                            <span className="text-[10px] text-gray-400">Render final MP4</span>
-                                        </div>
+                                        <ExportIcon className="w-3 h-3 text-blue-400" /> Render Video
                                     </button>
                                 </div>
                             )}
@@ -533,8 +461,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                     </div>
                  </div>
                  
-                 {/* 2. Toolbar */}
-                 <div className="h-12 md:h-14 bg-[#1e1e1e] border-t border-black/50 z-20 flex-shrink-0">
+                 {/* Toolbar */}
+                 <div className="h-10 md:h-12 bg-[#1e1e1e] border-t border-black/50 z-20 flex-shrink-0">
                      <Toolbar 
                         activeMenu={activeMenu}
                         setActiveMenu={setActiveMenu}
@@ -554,10 +482,9 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
              </div>
 
              {/* BOTTOM HALF: TIMELINE & PROPERTIES */}
-             <div className="flex-1 flex flex-col min-h-0 bg-[#161616] mb-16 md:mb-0">
-                 
-                 {/* 3. Timeline */}
-                 <div className="flex-1 min-h-[120px] relative flex flex-col">
+             <div className="flex-1 flex flex-col min-h-0 bg-[#161616] pb-16 md:pb-0">
+                 {/* Timeline */}
+                 <div className="flex-1 relative flex flex-col min-h-0">
                      <Timeline 
                         segments={segments}
                         audioTracks={audioTracks}
@@ -581,8 +508,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
                      />
                  </div>
                  
-                 {/* 4. Properties Panel (Collapsible/Scrollable on mobile) */}
-                 <div className="flex-shrink-0 border-t border-white/5 z-20 bg-[#1e1e1e] overflow-x-auto overflow-y-hidden">
+                 {/* Properties Panel */}
+                 <div className="flex-shrink-0 border-t border-white/5 z-20 bg-[#1e1e1e]">
                      <PropertiesPanel 
                         segment={activeSegment}
                         audioTrack={activeAudioTrack}
@@ -599,8 +526,8 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
              </div>
         </div>
 
-        {/* MOBILE BOTTOM NAVIGATION (Fixed at very bottom) */}
-        <div className="md:hidden z-50 fixed bottom-0 left-0 right-0 bg-[#161616] border-t border-white/10 shadow-2xl">
+        {/* MOBILE BOTTOM NAVIGATION */}
+        <div className="md:hidden z-50 fixed bottom-0 left-0 right-0 bg-[#161616] border-t border-white/10 shadow-2xl h-16">
             <Sidebar activeTab={isResourcePanelOpen ? activeResourceTab : ''} setActiveTab={handleSidebarTabClick} />
         </div>
 
@@ -617,7 +544,7 @@ const VideoEditor: React.FC<VideoEditorProps> = ({ initialScript }) => {
             allSegments={segments}
             onGenerateAllNarrations={handleGenerateAllNarrations} 
             generationProgress={generationProgress}
-            onCancelGeneration={handleCancelGeneration}
+            onCancelGeneration={() => stopGenerationRef.current = true}
         />
 
         <ExportModal 
