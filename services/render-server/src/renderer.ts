@@ -166,14 +166,20 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                     cmd.input(audioPath);
                     outOpts.push('-map 1:a');
                 } else {
-                    cmd.input('anullsrc=channel_layout=stereo:sample_rate=44100').inputFormat('lavfi');
+                    // FIX: Bypass .inputFormat('lavfi') check because it often fails in restricted environments
+                    // Use inputOptions instead to pass -f lavfi directly to the binary.
+                    cmd.input('anullsrc=channel_layout=stereo:sample_rate=44100')
+                       .inputOptions(['-f', 'lavfi']);
                     outOpts.push('-map 1:a');
                 }
 
                 cmd.outputOptions(outOpts)
                    .save(segOut)
-                   .on('end', () => resolve()) // Fix: Wrap resolve
-                   .on('error', (err) => reject(err));
+                   .on('end', () => resolve())
+                   .on('error', (err) => {
+                       console.error(`Error rendering segment ${i}:`, err.message);
+                       reject(err);
+                   });
             });
             segmentFiles.push(segOut);
         }
@@ -187,7 +193,7 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             ffmpeg().input(concatTxt).inputOptions(['-f concat', '-safe 0'])
                 .outputOptions(['-c copy'])
                 .save(mergedVisuals)
-                .on('end', () => res()) // Fix: Wrap res
+                .on('end', () => res())
                 .on('error', (err) => rej(err));
         });
 
@@ -214,7 +220,7 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                 mixCmd.complexFilter(mixFilters)
                     .outputOptions(['-map 0:v', '-map [out_a]', '-c:v copy', '-c:a aac', '-shortest'])
                     .save(finalPath)
-                    .on('end', () => res()) // Fix: Wrap res
+                    .on('end', () => res())
                     .on('error', (err) => rej(err));
             });
             return finalPath;
