@@ -154,9 +154,17 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                     lastVLabel = 'v_sub';
                 }
 
+                // Handle Silence via Filter instead of -f lavfi input to avoid capability check errors
+                let audioLabel = '1:a';
+                if (!audioPath) {
+                    filterComplex.push(`anullsrc=channel_layout=stereo:sample_rate=44100[a_silence]`);
+                    audioLabel = 'a_silence';
+                }
+
                 cmd.complexFilter(filterComplex);
                 const outOpts = [
                     `-map [${lastVLabel}]`,
+                    `-map [${audioLabel}]`,
                     '-c:v libx264', '-preset superfast', '-crf 23',
                     '-c:a aac', '-b:a 128k',
                     `-t ${seg.duration}`
@@ -164,13 +172,6 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
 
                 if (audioPath) {
                     cmd.input(audioPath);
-                    outOpts.push('-map 1:a');
-                } else {
-                    // FIX: Bypass .inputFormat('lavfi') check because it often fails in restricted environments
-                    // Use inputOptions instead to pass -f lavfi directly to the binary.
-                    cmd.input('anullsrc=channel_layout=stereo:sample_rate=44100')
-                       .inputOptions(['-f', 'lavfi']);
-                    outOpts.push('-map 1:a');
                 }
 
                 cmd.outputOptions(outOpts)
