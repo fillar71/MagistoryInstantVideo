@@ -92,7 +92,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if (!segment.wordTimings || segment.wordTimings.length === 0) {
         content += `Dialogue: 0,${fmt(0)},${fmt(segment.duration)},Default,,0,0,0,,${segment.narration_text}\n`;
     } else {
-        // Group words into lines based on typical character length
         let currentLine: any[] = [];
         let charCount = 0;
         const flush = () => {
@@ -134,7 +133,6 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             const clipPath = await saveAsset(seg.media[0].url, jobId, seg.media[0].type, tempDir);
             let audioPath = seg.audioUrl ? await saveAsset(seg.audioUrl, jobId, 'audio', tempDir) : null;
             
-            // Generate Subtitle File
             let assPath = null;
             if (seg.narration_text) {
                 assPath = path.join(jobDir, `sub_${i}.ass`);
@@ -172,7 +170,10 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                     outOpts.push('-map 1:a');
                 }
 
-                cmd.outputOptions(outOpts).save(segOut).on('end', () => resolve()).on('error', reject);
+                cmd.outputOptions(outOpts)
+                   .save(segOut)
+                   .on('end', () => resolve()) // Fix: Wrap resolve
+                   .on('error', (err) => reject(err));
             });
             segmentFiles.push(segOut);
         }
@@ -184,7 +185,10 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
 
         await new Promise<void>((res, rej) => {
             ffmpeg().input(concatTxt).inputOptions(['-f concat', '-safe 0'])
-                .outputOptions(['-c copy']).save(mergedVisuals).on('end', res).on('error', rej);
+                .outputOptions(['-c copy'])
+                .save(mergedVisuals)
+                .on('end', () => res()) // Fix: Wrap res
+                .on('error', (err) => rej(err));
         });
 
         // 3. FINAL MIX (Merge with Global Audio Tracks - Feature: Audio to Video)
@@ -209,7 +213,9 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             await new Promise<void>((res, rej) => {
                 mixCmd.complexFilter(mixFilters)
                     .outputOptions(['-map 0:v', '-map [out_a]', '-c:v copy', '-c:a aac', '-shortest'])
-                    .save(finalPath).on('end', res).on('error', rej);
+                    .save(finalPath)
+                    .on('end', () => res()) // Fix: Wrap res
+                    .on('error', (err) => rej(err));
             });
             return finalPath;
         }
