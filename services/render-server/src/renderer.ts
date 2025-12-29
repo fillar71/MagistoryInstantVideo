@@ -1,12 +1,9 @@
-
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import axios from 'axios';
 import { Buffer } from 'buffer';
-
-const TEMP_DIR = path.join((process as any).cwd(), 'temp');
 
 interface RenderJob {
     title: string;
@@ -26,10 +23,11 @@ function getMediaDuration(filePath: string): Promise<number> {
     });
 }
 
-async function saveAsset(url: string, jobId: string, type: 'image' | 'video' | 'audio'): Promise<string> {
+// Updated: Accepts targetDirectory directly instead of depending on global constant
+async function saveAsset(url: string, targetDirectory: string, type: 'image' | 'video' | 'audio'): Promise<string> {
     const ext = type === 'image' ? 'jpg' : type === 'video' ? 'mp4' : 'mp3';
     const filename = `${uuidv4()}.${ext}`;
-    const filePath = path.join(TEMP_DIR, jobId, filename);
+    const filePath = path.join(targetDirectory, filename);
 
     if (url.startsWith('data:')) {
         const matches = url.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
@@ -139,7 +137,8 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
 
             // Handle Audio
             if (seg.audioUrl) {
-                audioPath = await saveAsset(seg.audioUrl, jobId, 'audio');
+                // FIX: Pass jobDir directly
+                audioPath = await saveAsset(seg.audioUrl, jobDir, 'audio');
                 try {
                     // Use audio duration as the master clock if available
                     const audioDur = await getMediaDuration(audioPath);
@@ -155,7 +154,8 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             const perClipDuration = exactDuration / Math.max(1, numClips);
 
             for (const clip of seg.media) {
-                const clipPath = await saveAsset(clip.url, jobId, clip.type);
+                // FIX: Pass jobDir directly
+                const clipPath = await saveAsset(clip.url, jobDir, clip.type);
                 clipInputs.push({ 
                     path: clipPath, 
                     type: clip.type, 
@@ -171,8 +171,6 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                 createASSFile(assPath, seg.narration_text, seg.wordTimings, exactDuration, width, height);
                 
                 // Escape path specifically for FFmpeg filter
-                // Windows uses backslashes which need quadruple escaping in JS strings for FFmpeg
-                // Simple trick: Convert to forward slashes, handle colons
                 const safeAssPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
                 assFilterString = `subtitles=filename='${safeAssPath}'`;
             }
@@ -268,7 +266,8 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             const complexFilters: string[] = [];
 
             for (const track of job.audioTracks) {
-                const trackPath = await saveAsset(track.url, jobId, 'audio');
+                // FIX: Pass jobDir directly
+                const trackPath = await saveAsset(track.url, jobDir, 'audio');
                 finalCmd.input(trackPath);
                 
                 const delayMs = Math.round(track.startTime * 1000);
