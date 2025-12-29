@@ -1,6 +1,6 @@
 
 import React, { useRef, useMemo, useEffect, useState } from 'react';
-import type { Segment, AudioClip, MediaTransform } from '../types';
+import type { Segment, AudioClip, MediaTransform, TextOverlayStyle } from '../types';
 import { PlayIcon, PauseIcon, ChevronLeftIcon, ChevronRightIcon } from './icons';
 import { generateSubtitleChunks } from '../utils/media';
 
@@ -19,20 +19,32 @@ interface PreviewWindowProps {
   onSeek: (time: number) => void;
   aspectRatio?: 'landscape' | 'portrait';
   onUpdateMediaTransform?: (segmentId: string, clipId: string, transform: MediaTransform) => void;
+  // New handler for updating text style
+  onUpdateTextStyle?: (segmentId: string, style: Partial<TextOverlayStyle>) => void;
   [key: string]: any; 
 }
 
 const PreviewWindow: React.FC<PreviewWindowProps> = ({ 
-    title, onTitleChange, segments, audioTracks = [], currentTime, isPlaying, totalDuration, onPlayPause, onSeek, aspectRatio = 'landscape', onUpdateMediaTransform
+    title, onTitleChange, segments, audioTracks = [], currentTime, isPlaying, totalDuration, onPlayPause, onSeek, aspectRatio = 'landscape', onUpdateMediaTransform, onUpdateTextStyle
 }) => {
     // Refs
     const segmentAudioRef = useRef<HTMLAudioElement>(null);
     const globalAudioRef = useRef<HTMLAudioElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Pan & Zoom State
-    const [isDragging, setIsDragging] = useState(false);
-    const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+    // Pan & Zoom State (Media)
+    const [isDraggingMedia, setIsDraggingMedia] = useState(false);
+    const [dragStartMedia, setDragStartMedia] = useState({ x: 0, y: 0 });
+
+    // Text Drag/Resize State
+    const [textInteraction, setTextInteraction] = useState<{
+        mode: 'drag' | 'resize' | 'none';
+        startX: number;
+        startY: number;
+        initialX: number; // percentage
+        initialY: number; // percentage
+        initialFontSize: number;
+    }>({ mode: 'none', startX: 0, startY: 0, initialX: 0, initialY: 0, initialFontSize: 0 });
     
     // Get Active Clip Information
     const currentRenderState = useMemo(() => {
@@ -92,7 +104,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         }
     }, [currentTime, isPlaying, audioTracks]);
 
-    // --- INTERACTION HANDLERS (Pan & Zoom) ---
+    // --- INTERACTION HANDLERS (Media Pan & Zoom) ---
 
     const handleWheel = (e: React.WheelEvent) => {
         e.preventDefault();
@@ -112,32 +124,84 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
         });
     };
 
-    const handleMouseDown = (e: React.MouseEvent) => {
-        if (!currentRenderState) return;
-        setIsDragging(true);
-        setDragStart({ x: e.clientX, y: e.clientY });
+    const handleMediaMouseDown = (e: React.MouseEvent) => {
+        if (!currentRenderState || textInteraction.mode !== 'none') return;
+        setIsDraggingMedia(true);
+        setDragStartMedia({ x: e.clientX, y: e.clientY });
     };
 
-    const handleMouseMove = (e: React.MouseEvent) => {
-        if (!isDragging || !currentRenderState || !onUpdateMediaTransform) return;
+    // --- INTERACTION HANDLERS (Text Drag & Resize) ---
+
+    const handleTextMouseDown = (e: React.MouseEvent, type: 'drag' | 'resize') => {
+        e.stopPropagation(); // Prevent media drag
+        e.preventDefault();
         
-        const { segment, clip } = currentRenderState;
-        const currentTransform = clip.transform || { scale: 1, x: 0, y: 0 };
-        
-        const deltaX = e.clientX - dragStart.x;
-        const deltaY = e.clientY - dragStart.y;
-        
-        onUpdateMediaTransform(segment.id, clip.id, {
-            ...currentTransform,
-            x: currentTransform.x + deltaX,
-            y: currentTransform.y + deltaY
+        if (!currentRenderState || !currentRenderState.segment.textOverlayStyle) return;
+        const style = currentRenderState.segment.textOverlayStyle;
+
+        // Default positions if undefined
+        const currentX = style.x ?? 50; 
+        const currentY = style.y ?? (style.position === 'bottom' ? 85 : style.position === 'top' ? 15 : 50);
+
+        setTextInteraction({
+            mode: type,
+            startX: e.clientX,
+            startY: e.clientY,
+            initialX: currentX,
+            initialY: currentY,
+            initialFontSize: style.fontSize
         });
-        
-        setDragStart({ x: e.clientX, y: e.clientY });
+    };
+
+    // Unified Mouse Move
+    const handleMouseMove = (e: React.MouseEvent) => {
+        // 1. Handle Text Interaction
+        if (textInteraction.mode !== 'none' && currentRenderState && containerRef.current && onUpdateTextStyle) {
+            const { segment } = currentRenderState;
+            const containerRect = containerRef.current.getBoundingClientRect();
+            
+            const deltaXPixels = e.clientX - textInteraction.startX;
+            const deltaYPixels = e.clientY - textInteraction.startY;
+
+            if (textInteraction.mode === 'drag') {
+                // Convert pixel delta to percentage delta
+                const deltaXPercent = (deltaXPixels / containerRect.width) * 100;
+                const deltaYPercent = (deltaYPixels / containerRect.height) * 100;
+
+                const newX = Math.max(0, Math.min(100, textInteraction.initialX + deltaXPercent));
+                const newY = Math.max(0, Math.min(100, textInteraction.initialY + deltaYPercent));
+
+                onUpdateTextStyle(segment.id, { x: newX, y: newY, position: 'custom' });
+            } else if (textInteraction.mode === 'resize') {
+                // Resize based on drag distance (simplified)
+                const scaleFactor = 1 + (deltaXPixels / 200); 
+                const newSize = Math.max(10, Math.min(200, textInteraction.initialFontSize * scaleFactor));
+                onUpdateTextStyle(segment.id, { fontSize: newSize });
+            }
+            return;
+        }
+
+        // 2. Handle Media Pan
+        if (isDraggingMedia && currentRenderState && onUpdateMediaTransform) {
+            const { segment, clip } = currentRenderState;
+            const currentTransform = clip.transform || { scale: 1, x: 0, y: 0 };
+            
+            const deltaX = e.clientX - dragStartMedia.x;
+            const deltaY = e.clientY - dragStartMedia.y;
+            
+            onUpdateMediaTransform(segment.id, clip.id, {
+                ...currentTransform,
+                x: currentTransform.x + deltaX,
+                y: currentTransform.y + deltaY
+            });
+            
+            setDragStartMedia({ x: e.clientX, y: e.clientY });
+        }
     };
 
     const handleMouseUp = () => {
-        setIsDragging(false);
+        setIsDraggingMedia(false);
+        setTextInteraction({ ...textInteraction, mode: 'none' });
     };
 
     // Subtitle Rendering
@@ -156,27 +220,53 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
 
         if (!displayChunk) return null;
 
+        // Determine Position
+        let top = '50%';
+        let left = '50%';
+        let transform = 'translate(-50%, -50%)';
+
+        if (currentStyle.position === 'custom' && currentStyle.x !== undefined && currentStyle.y !== undefined) {
+            left = `${currentStyle.x}%`;
+            top = `${currentStyle.y}%`;
+        } else {
+            // Fallback to presets
+            if (currentStyle.position === 'top') top = '15%';
+            else if (currentStyle.position === 'bottom') top = '85%';
+        }
+
         return (
-            <p 
-                style={{
-                    fontFamily: currentStyle.fontFamily,
-                    fontSize: `${currentStyle.fontSize}px`,
-                    backgroundColor: currentStyle.backgroundColor,
-                    textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
-                    textAlign: 'center',
-                    lineHeight: 1.4
-                }}
-                className="p-2 rounded-md transition-all duration-100"
+            <div 
+                className="absolute group/text cursor-move select-none"
+                style={{ top, left, transform }}
+                onMouseDown={(e) => handleTextMouseDown(e, 'drag')}
             >
-                {displayChunk.timings.map((t, i) => {
-                    const isActive = localTime >= t.start && localTime < t.end;
-                    return (
-                        <span key={i} style={{ color: isActive ? currentStyle.color : '#FFFFFF', opacity: isActive ? 1 : 0.7, marginRight: '0.25em' }}>
-                            {t.word}
-                        </span>
-                    );
-                })}
-            </p>
+                <div 
+                    className="relative p-2 rounded-md transition-all duration-100 text-center border-2 border-transparent hover:border-purple-500/50 hover:bg-black/20"
+                    style={{
+                        fontFamily: currentStyle.fontFamily,
+                        fontSize: `${currentStyle.fontSize}px`,
+                        backgroundColor: currentStyle.backgroundColor,
+                        textShadow: '2px 2px 4px rgba(0,0,0,0.7)',
+                        lineHeight: 1.4,
+                        whiteSpace: 'nowrap'
+                    }}
+                >
+                    {displayChunk.timings.map((t, i) => {
+                        const isActive = localTime >= t.start && localTime < t.end;
+                        return (
+                            <span key={i} style={{ color: isActive ? currentStyle.color : '#FFFFFF', opacity: isActive ? 1 : 0.7, marginRight: '0.25em' }}>
+                                {t.word}
+                            </span>
+                        );
+                    })}
+
+                    {/* Resize Handle */}
+                    <div 
+                        className="absolute -bottom-2 -right-2 w-4 h-4 bg-purple-500 rounded-full cursor-se-resize opacity-0 group-hover/text:opacity-100 shadow-sm border border-white"
+                        onMouseDown={(e) => handleTextMouseDown(e, 'resize')}
+                    />
+                </div>
+            </div>
         )
     }
 
@@ -187,8 +277,8 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
     const activeTransform = currentRenderState?.clip.transform || { scale: 1, x: 0, y: 0 };
     const mediaStyle: React.CSSProperties = {
         transform: `translate(${activeTransform.x}px, ${activeTransform.y}px) scale(${activeTransform.scale})`,
-        cursor: isDragging ? 'grabbing' : 'grab',
-        transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+        cursor: isDraggingMedia ? 'grabbing' : 'grab',
+        transition: isDraggingMedia ? 'none' : 'transform 0.1s ease-out'
     };
 
     return (
@@ -209,7 +299,7 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                     ref={containerRef}
                     className={`relative bg-black shadow-2xl overflow-hidden ${containerAspectClass}`}
                     onWheel={handleWheel}
-                    onMouseDown={handleMouseDown}
+                    onMouseDown={handleMediaMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
@@ -231,9 +321,9 @@ const PreviewWindow: React.FC<PreviewWindowProps> = ({
                                     style={mediaStyle}
                                 />
                             )}
-                            <div className={`absolute inset-0 p-8 flex flex-col justify-end items-center pointer-events-none`}>
-                                {renderKaraokeText()}
-                            </div>
+                            
+                            {/* Text Overlay Layer */}
+                            {renderKaraokeText()}
                         </>
                     ) : (
                         <div className="flex items-center justify-center h-full text-gray-700 font-mono">NO SIGNAL</div>

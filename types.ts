@@ -7,7 +7,10 @@ export interface TextOverlayStyle {
   fontFamily: string;
   fontSize: number;
   color: string;
-  position: 'top' | 'center' | 'bottom';
+  // Position can still use presets, or manual x/y (percentages 0-100)
+  position: 'top' | 'center' | 'bottom' | 'custom';
+  x?: number; // 0 to 100 percentage
+  y?: number; // 0 to 100 percentage
   backgroundColor: string;
   animation?: TextAnimation;
   maxCaptionLines?: number;

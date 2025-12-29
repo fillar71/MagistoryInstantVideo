@@ -52,9 +52,40 @@ async function saveAsset(url: string, targetDirectory: string, type: 'image' | '
 }
 
 // Generate Advanced Substation Alpha (.ass) subtitle file for perfect sync and styling
-function createASSFile(filePath: string, text: string, timings: any[], duration: number, width: number, height: number) {
+// Updated to support custom coordinates (x,y) from frontend
+function createASSFile(filePath: string, text: string, timings: any[], duration: number, width: number, height: number, overlayStyle: any) {
     // Escaping function for ASS text
     const escapeAss = (str: string) => str.replace(/\{/g, '\\{').replace(/\}/g, '\\}').replace(/\n/g, '\\N');
+
+    const fontSize = overlayStyle?.fontSize ? Math.round(overlayStyle.fontSize * (height / 720)) : Math.round(height * 0.05);
+    
+    // Determine Alignment & Position
+    // Default: Bottom Center (Alignment 2)
+    let alignment = 2; 
+    let posTag = "";
+
+    // If custom coordinates exist, use Alignment 5 (7=top-left, 5=top-left but legacy logic... typically 7 is top-left, 5 is top-left in some implementations or 7 is standard top-left)
+    // Actually, simple \pos(x,y) works best with Alignment 2 (center reference) or 5 (top-left reference).
+    // Let's use \pos(x,y) with alignment 2 (center) if x/y provided, converting percentage to pixels.
+    if (overlayStyle?.x !== undefined && overlayStyle?.y !== undefined) {
+        const posX = Math.round((overlayStyle.x / 100) * width);
+        const posY = Math.round((overlayStyle.y / 100) * height);
+        posTag = `\\pos(${posX},${posY})`;
+        alignment = 5; // 5 is usually Top-Left relative to position, or 2 if we want center. 
+        // To match frontend "translate(-50%, -50%)", we should probably use alignment 5 (7 numpad) and offset, 
+        // OR better: Frontend uses center origin for text. 
+        // Let's assume standard behavior: \pos sets the anchor point.
+        // If we set Alignment=5 (Top Left of text at pos), it might shift.
+        // Alignment=2 (Bottom Center). 
+        // Let's stick to Alignment=2 (Bottom Center) as default, but if pos is set, override to 5 (Top Left) or 2 (Center).
+        // Since frontend centers the div on the coordinate, Alignment 5 (7 on numpad logic, but in ASS, 5 is often legacy top-left or center depending on version. Standard is numpad: 5=Center).
+        alignment = 5; // Center-Center alignment
+    } else {
+        // Legacy position logic
+        if (overlayStyle?.position === 'top') alignment = 8; // Top Center
+        else if (overlayStyle?.position === 'center') alignment = 5; // Middle Center
+        else alignment = 2; // Bottom Center
+    }
 
     let content = `[Script Info]
 ScriptType: v4.00+
@@ -64,7 +95,7 @@ WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${Math.round(height * 0.05)},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,10,10,${Math.round(height * 0.05)},1
+Style: Default,Arial,${fontSize},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -76,11 +107,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return iso.slice(0, -1);
     };
 
+    const overrideTags = `{\\an${alignment}${posTag}}`;
+
     // If no timings provided, show full text for duration
     if (!timings || timings.length === 0) {
         if (text) {
             const end = fmtTime(duration);
-            content += `Dialogue: 0,0:00:00.00,${end},Default,,0,0,0,,${escapeAss(text)}\n`;
+            content += `Dialogue: 0,0:00:00.00,${end},Default,,0,0,0,,${overrideTags}${escapeAss(text)}\n`;
         }
     } else {
         // Group words into lines
@@ -93,7 +126,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             const start = fmtTime(currentLine[0].start);
             const end = fmtTime(currentLine[currentLine.length - 1].end);
             const lineText = currentLine.map(x => x.word).join(' ');
-            content += `Dialogue: 0,${start},${end},Default,,0,0,0,,${escapeAss(lineText)}\n`;
+            content += `Dialogue: 0,${start},${end},Default,,0,0,0,,${overrideTags}${escapeAss(lineText)}\n`;
             currentLine = [];
             currentLen = 0;
         };
@@ -170,7 +203,23 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
             let assFilterString = '';
             if (seg.narration_text) {
                 assPath = path.join(jobDir, `subs_${i}.ass`);
-                createASSFile(assPath, seg.narration_text, seg.wordTimings, exactDuration, width, height);
+                
+                // --- SUBTITLE SYNC FIX ---
+                let syncedTimings = seg.wordTimings;
+                if (seg.wordTimings && seg.wordTimings.length > 0) {
+                    const estimatedDuration = seg.duration || exactDuration;
+                    if (estimatedDuration > 0 && Math.abs(estimatedDuration - exactDuration) > 0.05) {
+                        const ratio = exactDuration / estimatedDuration;
+                        syncedTimings = seg.wordTimings.map((t: any) => ({
+                            ...t,
+                            start: t.start * ratio,
+                            end: t.end * ratio
+                        }));
+                    }
+                }
+
+                // Pass overlay style to createASSFile
+                createASSFile(assPath, seg.narration_text, syncedTimings, exactDuration, width, height, seg.textOverlayStyle);
                 
                 // Escape path specifically for FFmpeg filter
                 const safeAssPath = assPath.replace(/\\/g, '/').replace(/:/g, '\\:');
@@ -207,28 +256,19 @@ export async function renderVideo(job: RenderJob, tempDir: string): Promise<stri
                 clipInputs.forEach((c, idx) => {
                     const label = `v${idx}`;
                     
-                    // Transform logic
-                    // User zoom is `scale` (e.g., 1.5). Default 1.
-                    // User pan is `x, y` pixels relative to container.
                     const t = c.transform || { scale: 1, x: 0, y: 0 };
                     const userZoom = t.scale || 1;
                     const userX = t.x || 0;
                     const userY = t.y || 0;
 
-                    // Standard "Cover" logic first: Scale to cover the box
-                    // scale='if(gt(a,w/h),-1,w)':'if(gt(a,w/h),h,-1)'
-                    // Then applying userZoom factor
                     const scaleFilter = `scale='if(gt(a,${width}/${height}),-1,${width})*${userZoom}':'if(gt(a,${width}/${height}),${height},-1)*${userZoom}'`;
                     
-                    // Crop logic
-                    // Standard crop centers the image: x=(iw-ow)/2, y=(ih-oh)/2
-                    // We apply the negative user offset (because moving image right means crop moves left relative to image)
                     const cropFilter = `crop=${width}:${height}:(iw-ow)/2 - ${userX}:(ih-oh)/2 - ${userY}`;
 
                     filters.push(`[${idx}:v]${scaleFilter},${cropFilter},setsar=1,trim=duration=${c.duration},setpts=PTS-STARTPTS[${label}]`);
                 });
 
-                // 2. Concatenate Clips Visuals (Simple concat for now, Xfade is complex for dynamic clips)
+                // 2. Concatenate Clips Visuals
                 const vLabels = clipInputs.map((_, idx) => `[v${idx}]`).join('');
                 filters.push(`${vLabels}concat=n=${clipInputs.length}:v=1:a=0[v_concat]`);
                 videoStreamLabel = 'v_concat';

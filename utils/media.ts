@@ -215,14 +215,18 @@ export function estimateWordTimings(text: string, totalDuration: number): WordTi
     const words = text.trim().split(/\s+/);
     if (words.length === 0) return [];
 
-    // Advanced estimation that considers punctuation for better sync
+    // Advanced estimation that considers punctuation and natural speech rhythm
     const getWeight = (word: string) => {
-        let weight = word.length;
-        // Add weight for punctuation to simulate pauses
-        if (/[.,;!?]+$/.test(word)) {
-            if (/[.,;]/.test(word)) weight += 3; // Short pause
-            if (/[!?]/.test(word) || word.endsWith('.')) weight += 6; // Long pause
-        }
+        // Remove punctuation to count actual characters spoken
+        const cleanWord = word.replace(/[^a-zA-Z0-9]/g, '');
+        // Base weight: Every word takes at least some time (prevent micro-flashing)
+        let weight = 1.5 + (cleanWord.length * 0.8);
+        
+        // Add specific weights for punctuation pauses
+        if (word.includes(',')) weight += 3; // Comma pause
+        if (word.includes('.') || word.includes('?') || word.includes('!')) weight += 5; // Sentence end pause
+        if (word.includes(':') || word.includes(';')) weight += 4;
+        
         return weight;
     };
 
@@ -233,6 +237,7 @@ export function estimateWordTimings(text: string, totalDuration: number): WordTi
 
     words.forEach(word => {
         const weight = getWeight(word);
+        // Distribute totalDuration proportionally based on weight
         const duration = (weight / totalWeight) * totalDuration;
         
         timings.push({
@@ -244,7 +249,7 @@ export function estimateWordTimings(text: string, totalDuration: number): WordTi
         currentTime += duration;
     });
     
-    // Adjust the last word to exactly match duration to avoid drift
+    // Strict clamp: Ensure the last word ends EXACTLY at totalDuration to prevent drift/clipping
     if (timings.length > 0) {
         timings[timings.length - 1].end = totalDuration;
     }
@@ -298,8 +303,8 @@ export function generateSubtitleChunks(
     
     // Extend chunk visibility to close gaps for smoother visual
     for(let i=0; i<chunks.length-1; i++) {
-        // If gap is small (< 1.5s), extend current chunk end to next start
-        if (chunks[i+1].start - chunks[i].end < 1.5) {
+        // If gap is small (< 1.0s), extend current chunk end to next start
+        if (chunks[i+1].start - chunks[i].end < 1.0) {
              chunks[i].end = chunks[i+1].start;
         }
     }

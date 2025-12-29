@@ -114,8 +114,8 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
            </div>
     
            {/* Caption Style */}
-           <div className="flex flex-col gap-2 border-r border-white/10 pr-4 min-w-[160px] flex-shrink-0">
-                 <label className="text-[10px] text-gray-400 font-bold uppercase">Caption Style</label>
+           <div className="flex flex-col gap-2 border-r border-white/10 pr-4 min-w-[200px] flex-shrink-0">
+                 <label className="text-[10px] text-gray-400 font-bold uppercase">Text Overlay</label>
                  <div className="flex gap-2">
                     {/* Font Size */}
                     <div className="flex items-center bg-[#121212] rounded border border-gray-700 h-8 px-2 flex-1">
@@ -138,16 +138,27 @@ const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                         <div className="w-full h-full rounded-sm shadow-sm" style={{ backgroundColor: segment.textOverlayStyle?.color || '#ffffff' }}></div>
                     </div>
                  </div>
-                 <div className="flex bg-[#121212] rounded border border-gray-700 h-6 p-0.5">
-                    {['top', 'center', 'bottom'].map(pos => (
-                        <button 
-                            key={pos}
-                            onClick={() => onUpdateStyle(segment.id, { position: pos as any })}
-                            className={`flex-1 text-[8px] uppercase rounded-sm font-bold ${segment.textOverlayStyle?.position === pos ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-                        >
-                            {pos[0]}
-                        </button>
-                    ))}
+                 
+                 {/* Position Controls */}
+                 <div className="flex gap-2">
+                     <div className="flex items-center bg-[#121212] rounded border border-gray-700 h-6 px-1 flex-1">
+                        <span className="text-[8px] text-gray-500 font-bold mr-1">X%</span>
+                        <input 
+                            type="number" min="0" max="100"
+                            value={Math.round(segment.textOverlayStyle?.x ?? 50)}
+                            onChange={(e) => onUpdateStyle(segment.id, { x: parseInt(e.target.value), position: 'custom' })}
+                            className="w-full bg-transparent text-[10px] font-mono outline-none text-white text-right"
+                        />
+                     </div>
+                     <div className="flex items-center bg-[#121212] rounded border border-gray-700 h-6 px-1 flex-1">
+                        <span className="text-[8px] text-gray-500 font-bold mr-1">Y%</span>
+                        <input 
+                            type="number" min="0" max="100"
+                            value={Math.round(segment.textOverlayStyle?.y ?? (segment.textOverlayStyle?.position === 'bottom' ? 85 : 50))}
+                            onChange={(e) => onUpdateStyle(segment.id, { y: parseInt(e.target.value), position: 'custom' })}
+                            className="w-full bg-transparent text-[10px] font-mono outline-none text-white text-right"
+                        />
+                     </div>
                  </div>
            </div>
 

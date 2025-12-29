@@ -214,7 +214,7 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
                             <h3 className="font-bold text-gray-200 text-sm">Story Editor</h3>
                     </div>
                     <p className="text-[10px] text-gray-400 leading-tight">
-                        Edit the full script here. Changes sync with the timeline and properties panel.
+                        Edit the narration text below. Changes will sync with the Auto Captions.
                     </p>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
@@ -241,35 +241,32 @@ const ResourcePanel: React.FC<ResourcePanelProps> = ({
             </div>
         )}
 
-        {/* Auto Captions & Presets (Collapsed or at bottom) */}
+        {/* Auto Captions (Replaces Generate All Subtitles) */}
         <div className="flex-shrink-0 border-t border-black/50 bg-[#1e1e1e] max-h-[40%] overflow-y-auto custom-scrollbar">
              <div className="p-4 border-b border-black/50 bg-[#252525]">
                 <div className="flex items-center gap-2 mb-2">
                         <MagicWandIcon className="w-4 h-4 text-purple-400" />
                         <h3 className="font-bold text-gray-200 text-sm">Auto Captions</h3>
                 </div>
+                <p className="text-[10px] text-gray-400 mb-3 leading-tight">
+                    Sync text with audio narration instantly. Ensure 100% accuracy.
+                </p>
                 <button 
                     onClick={onAutoCaptions}
-                    className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 border border-white/10"
+                    className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 border border-white/10 active:scale-95"
                     >
-                    <TextIcon className="w-3 h-3" /> Generate All Subtitles
+                    <TextIcon className="w-3 h-3" /> Sync & Display Captions
                 </button>
             </div>
 
             <div className="p-4">
-                <h3 className="font-bold text-gray-400 text-[10px] uppercase mb-2">Overlay Presets</h3>
+                <h3 className="font-bold text-gray-400 text-[10px] uppercase mb-2">Manual Overlay</h3>
                 <div className="grid gap-2">
                     <button 
-                    onClick={() => onAddText("Add your text")}
+                    onClick={() => onAddText("Add Title")}
                     className="h-10 bg-[#252525] hover:bg-[#2a2a2a] border border-gray-700 hover:border-purple-500 rounded flex items-center justify-center text-white font-sans font-bold text-xs transition-all"
                     >
-                    Default Text
-                    </button>
-                    <button 
-                    onClick={() => onAddText("TITLE")}
-                    className="h-14 bg-[#252525] hover:bg-[#2a2a2a] border border-gray-700 hover:border-purple-500 rounded flex items-center justify-center text-white font-serif font-black text-lg transition-all"
-                    >
-                    TITLE
+                    + Add New Text
                     </button>
                 </div>
             </div>
